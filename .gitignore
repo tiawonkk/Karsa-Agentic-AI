@@ -1,0 +1,31 @@
+# Virtual Environment & Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pytest_cache/
+.coverage
+htmlcov/
+
+# Node & Desktop Companion
+node_modules/
+desktop-companion/node_modules/
+desktop-companion/dist/
+desktop-companion/.vite/
+
+# Environment Variables & Secrets
+.env
+.env.local
+*.env
+
+# Operating System & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local database storage & temporary files
+*.sqlite3
+*.db-journal
+storage/*.db

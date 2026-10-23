@@ -1,0 +1,17 @@
+{
+  "name": "Karsa Agentic AI Companion",
+  "short_name": "Karsa",
+  "description": "Personal Agentic AI Companion untuk Mahasiswa Indonesia",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#D95D39",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
