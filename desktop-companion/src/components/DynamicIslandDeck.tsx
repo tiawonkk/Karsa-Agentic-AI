@@ -72,8 +72,9 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = (props) => {
 
   return (
     <div className="w-full flex flex-col space-y-2 select-none">
-      {/* Top Deck Sub-Header: Slide Title, Navigation Arrows, Clock & Live Pulsing Dot */}
+      {/* Top Deck Sub-Header (Reference Images 3, 4, 5) */}
       <div className="flex items-center justify-between px-1 text-[11px] text-zinc-400">
+        {/* Left: Category Title */}
         <div className="flex items-center gap-1.5">
           <button
             type="button"
@@ -83,7 +84,7 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = (props) => {
           >
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
-          <span className="font-semibold text-zinc-200 tracking-tight">
+          <span className="font-bold text-white tracking-tight text-xs">
             {SLIDE_TITLES[currentSlide]}
           </span>
           <button
@@ -96,10 +97,22 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = (props) => {
           </button>
         </div>
 
-        {/* Live Clock & Equalizer status */}
-        <div className="flex items-center gap-2 font-mono text-[10px]">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span>{currentTimeStr}</span>
+        {/* Center/Right: Green status ring + Date/Time + Audio Equalizer bars */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 font-mono text-[10px] text-zinc-300">
+            <div className="w-3.5 h-3.5 rounded-full border border-emerald-400/80 p-0.5 flex items-center justify-center">
+              <div className="w-full h-full rounded-full bg-emerald-400 animate-pulse" />
+            </div>
+            <span>{currentTimeStr}</span>
+          </div>
+
+          {/* Equalizer bars animated ||||| */}
+          <div className="flex items-end gap-0.5 h-3">
+            <span className="w-0.5 h-2 rounded-full bg-white animate-pulse" />
+            <span className="w-0.5 h-3 rounded-full bg-white animate-pulse delay-75" />
+            <span className="w-0.5 h-1.5 rounded-full bg-white animate-pulse delay-150" />
+            <span className="w-0.5 h-2.5 rounded-full bg-white animate-pulse delay-100" />
+          </div>
         </div>
       </div>
 
@@ -145,8 +158,8 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = (props) => {
               onClick={() => setCurrentSlide(idx)}
               className={`transition-all duration-300 rounded-full cursor-pointer ${
                 isActive
-                  ? "w-6 h-1.5 bg-orange-500 shadow-sm"
-                  : "w-1.5 h-1.5 bg-white/20 hover:bg-white/40"
+                  ? "w-5 h-1 bg-white shadow-sm"
+                  : "w-1 h-1 bg-white/30 hover:bg-white/50"
               }`}
               title={`Buka Slide ${idx + 1}`}
             />

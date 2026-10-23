@@ -37,8 +37,36 @@ export const MediaPlayerSlide: React.FC<MediaPlayerSlideProps> = ({ isDark }) =>
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(193); // 03:13
   const [showLyrics, setShowLyrics] = useState(true);
+  const [trackTitle, setTrackTitle] = useState("Paper Sky");
+  const [trackArtist, setTrackArtist] = useState("Lumen Coast • Lofi Focus");
   const totalDuration = 256; // 04:16
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Fetch real Windows media session (GSMTC)
+  useEffect(() => {
+    const fetchMedia = async () => {
+      try {
+        const res = await fetch("/api/v1/system/media-session");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.title && data.title !== "NoActiveSession") {
+            setTrackTitle(data.title);
+            setTrackArtist(
+              `${data.artist || "Unknown Artist"}${data.album ? ` • ${data.album}` : ""}`
+            );
+            if (data.status === "Playing") {
+              setIsPlaying(true);
+            } else if (data.status === "Paused") {
+              setIsPlaying(false);
+            }
+          }
+        }
+      } catch (_) {}
+    };
+    fetchMedia();
+    const interval = setInterval(fetchMedia, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Playback timer ticker
   useEffect(() => {
@@ -103,9 +131,9 @@ export const MediaPlayerSlide: React.FC<MediaPlayerSlideProps> = ({ isDark }) =>
 
             <div className="truncate">
               <h4 className="text-xs font-semibold tracking-tight truncate leading-tight">
-                Paper Sky
+                {trackTitle}
               </h4>
-              <p className="text-[10px] text-zinc-400 truncate">Lumen Coast • Lofi Focus</p>
+              <p className="text-[10px] text-zinc-400 truncate">{trackArtist}</p>
             </div>
           </div>
 

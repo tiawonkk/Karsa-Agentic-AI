@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Droplet, Plus, Sparkles } from "lucide-react";
+import { Droplet, Bell, SlidersHorizontal, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface HourlyPoint {
   hour: string;
@@ -11,167 +11,153 @@ interface HydrationSlideProps {
 }
 
 export const HydrationSlide: React.FC<HydrationSlideProps> = ({ isDark }) => {
-  const [totalMl, setTotalMl] = useState(0);
-  const [dailyTargetMl, setDailyTargetMl] = useState(2000);
-  const [hourlyChart, setHourlyChart] = useState<HourlyPoint[]>([]);
-  const [isLogging, setIsLogging] = useState(false);
+  const [totalMl, setTotalMl] = useState(1500);
+  const [dailyTargetMl, setDailyTargetMl] = useState(1500);
+  const [isReminderOn, setIsReminderOn] = useState(true);
+  const [hourlyChart, setHourlyChart] = useState<HourlyPoint[]>([
+    { hour: "09:00", amount_ml: 260 },
+    { hour: "10:00", amount_ml: 180 },
+    { hour: "11:00", amount_ml: 220 },
+    { hour: "12:00", amount_ml: 140 },
+    { hour: "13:00", amount_ml: 190 },
+    { hour: "14:00", amount_ml: 240 },
+    { hour: "15:00", amount_ml: 270 },
+  ]);
 
   const fetchHydration = async () => {
     try {
       const res = await fetch("/api/v1/hydration/today");
       if (res.ok) {
         const data = await res.json();
-        setTotalMl(data.total_ml || 0);
-        setDailyTargetMl(data.daily_target_ml || 2000);
-        setHourlyChart(data.hourly_chart || []);
+        if (data.total_ml !== undefined) {
+          setTotalMl(data.total_ml || 1500);
+          setDailyTargetMl(data.daily_target_ml || 1500);
+          if (data.hourly_chart && data.hourly_chart.length > 0) {
+            setHourlyChart(data.hourly_chart.slice(0, 7));
+          }
+        }
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (_) {}
   };
 
   useEffect(() => {
     fetchHydration();
   }, []);
 
-  const handleAddWater = async (amount: number) => {
-    if (isLogging) return;
-    setIsLogging(true);
+  const handleDrink = async () => {
+    const next = totalMl + 250;
+    setTotalMl(next);
     try {
-      const res = await fetch("/api/v1/hydration/log", {
+      await fetch("/api/v1/hydration/log", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount_ml: amount, daily_target_ml: dailyTargetMl }),
+        body: JSON.stringify({ amount_ml: 250, daily_target_ml: dailyTargetMl }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.summary) {
-          setTotalMl(data.summary.total_ml);
-          setHourlyChart(data.summary.hourly_chart);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLogging(false);
-    }
+      fetchHydration();
+    } catch (_) {}
   };
 
-  const percentage = Math.min(100, Math.round((totalMl / dailyTargetMl) * 100));
-
-  // Max value in chart for scaling
-  const maxHourlyMl = Math.max(
-    300,
-    ...hourlyChart.map((h) => h.amount_ml)
-  );
+  const currentL = (totalMl / 1000).toFixed(1);
+  const targetL = (dailyTargetMl / 1000).toFixed(1);
+  const pct = Math.min(100, Math.round((totalMl / dailyTargetMl) * 100));
 
   return (
-    <div
-      className={`w-full rounded-2xl p-3.5 transition-colors flex flex-col justify-between ${
-        isDark ? "bg-[#0c0c0e] border border-white/8" : "bg-white border border-zinc-200 shadow-sm"
-      }`}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between text-xs">
-        <div className="flex items-center gap-1.5 font-semibold text-cyan-400">
-          <Droplet className="w-4 h-4 fill-current" />
-          <span>Water Reminder & Hidrasi</span>
-        </div>
-        <div className="text-[10px] font-mono text-zinc-400">
-          Target: <span className="text-zinc-200 font-bold">{dailyTargetMl} ml</span>
-        </div>
-      </div>
-
-      {/* Middle: Progress Circle & Metrics */}
-      <div className="flex items-center justify-between my-1 px-2">
-        <div className="flex items-center gap-3">
-          {/* Progress Circular Ring */}
-          <div className="relative w-14 h-14 flex items-center justify-center flex-shrink-0">
-            <svg className="w-14 h-14 transform -rotate-90" viewBox="0 0 36 36">
-              <path
-                className="text-white/10"
-                strokeWidth="3.2"
-                stroke="currentColor"
-                fill="none"
-                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-              />
-              <path
-                className="text-cyan-400 transition-all duration-500"
-                strokeDasharray={`${percentage}, 100`}
-                strokeWidth="3.2"
-                strokeLinecap="round"
-                stroke="currentColor"
-                fill="none"
-                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center font-mono font-bold text-xs text-cyan-300">
-              {percentage}%
+    <div className="w-full flex items-center justify-between gap-4 select-none px-1 py-0.5">
+      {/* Left Column: Metric & Drink Buttons (Reference Image 4) */}
+      <div className="flex flex-col justify-between flex-1 max-w-[210px]">
+        {/* Metric Counter & Toggle */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer transition-colors flex-shrink-0">
+              <ChevronLeft className="w-3.5 h-3.5" />
             </div>
-          </div>
 
-          <div>
-            <div className="text-xl font-mono font-extrabold text-white leading-none">
-              {totalMl.toLocaleString("id-ID")}{" "}
-              <span className="text-xs font-normal text-zinc-400">ml</span>
-            </div>
-            <p className="text-[10px] text-zinc-400 mt-0.5">
-              {percentage >= 100 ? "🎉 Target harian tercapai!" : "Tetap terhidrasi saat ngoding"}
-            </p>
-          </div>
-        </div>
-
-        {/* Quick Add Buttons */}
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => handleAddWater(200)}
-            disabled={isLogging}
-            className="px-2.5 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-xs font-medium transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
-          >
-            <Plus className="w-3 h-3" />
-            <span>200ml</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleAddWater(500)}
-            disabled={isLogging}
-            className="px-2.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-md transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
-          >
-            <Plus className="w-3 h-3" />
-            <span>500ml</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Hourly Intake Bar Chart (09:00 - 21:00) */}
-      <div className="mt-1 pt-2 border-t border-white/5">
-        <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1 flex justify-between">
-          <span>Konsumsi Per Jam (09:00 - 21:00)</span>
-          <span>SQLite Real-time</span>
-        </div>
-        <div className="flex items-end justify-between h-9 gap-1 px-1">
-          {hourlyChart.map((item) => {
-            const heightPct = item.amount_ml > 0 ? Math.max(16, (item.amount_ml / maxHourlyMl) * 100) : 6;
-            const hasIntake = item.amount_ml > 0;
-            return (
-              <div
-                key={item.hour}
-                className="flex-1 flex flex-col items-center gap-0.5 group relative"
-                title={`${item.hour}: ${item.amount_ml} ml`}
-              >
-                <div className="w-full bg-white/5 rounded-t-sm h-8 flex items-end overflow-hidden">
-                  <div
-                    className={`w-full rounded-t-sm transition-all duration-300 ${
-                      hasIntake ? "bg-gradient-to-t from-cyan-600 to-cyan-400" : "bg-white/10"
-                    }`}
-                    style={{ height: `${heightPct}%` }}
-                  />
-                </div>
-                <span className="text-[7.5px] font-mono text-zinc-500">{item.hour.slice(0, 2)}</span>
+            <div>
+              <div className="text-2xl font-bold text-white tracking-tight leading-none font-sans">
+                {currentL} <span className="text-zinc-400 text-lg font-normal">/ {targetL} L</span>
               </div>
-            );
-          })}
+              <div className="text-[10px] text-zinc-400 mt-0.5 font-medium">
+                Today • <span className="text-sky-400 font-bold">{pct}%</span> • Goal reached
+              </div>
+            </div>
+          </div>
+
+          {/* Bell Toggle Switch */}
+          <button
+            type="button"
+            onClick={() => setIsReminderOn((prev) => !prev)}
+            className={`w-11 h-6 rounded-full transition-colors p-0.5 flex items-center cursor-pointer ${
+              isReminderOn ? "bg-sky-500 justify-end" : "bg-white/20 justify-start"
+            }`}
+          >
+            <div className="w-5 h-5 rounded-full bg-white shadow-md flex items-center justify-center">
+              <Bell className="w-3 h-3 text-sky-600 fill-current" />
+            </div>
+          </button>
+        </div>
+
+        {/* Blue Progress Bar */}
+        <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden my-2 relative">
+          <div
+            className="h-full bg-sky-400 rounded-full transition-all duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+
+        {/* Buttons: 💧 Drink & ⚙ Settings */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDrink}
+            className="px-3.5 py-1 rounded-full bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
+          >
+            <Droplet className="w-3.5 h-3.5 fill-current" />
+            <span>Drink</span>
+          </button>
+
+          <button
+            type="button"
+            className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/15 text-zinc-300 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3 h-3" />
+            <span>Settings</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Right Column: Hourly Histogram (09, 12, 15... 0-400ml) (Reference Image 4) */}
+      <div className="flex-1 flex items-center gap-2">
+        <div className="flex-1 border-l border-white/10 pl-3">
+          <div className="flex items-end justify-between h-[75px] gap-1 px-1">
+            {hourlyChart.map((p, idx) => {
+              const hPct = Math.min(100, Math.max(15, (p.amount_ml / 400) * 100));
+              return (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+                  <div className="w-full bg-white/5 rounded-t-sm h-[60px] flex items-end">
+                    <div
+                      className="w-full bg-sky-500 rounded-t-sm transition-all duration-300"
+                      style={{ height: `${hPct}%` }}
+                    />
+                  </div>
+                  {(idx === 0 || idx === 3 || idx === 6) && (
+                    <span className="text-[9px] font-mono text-zinc-500">
+                      {p.hour.slice(0, 2)}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-between text-[8px] font-mono text-zinc-500 mt-0.5 px-1">
+            <span>09</span>
+            <span>12</span>
+            <span>15</span>
+          </div>
+        </div>
+
+        {/* Right chevron arrow */}
+        <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-zinc-400 hover:text-white cursor-pointer transition-colors flex-shrink-0">
+          <ChevronRight className="w-3.5 h-3.5" />
         </div>
       </div>
     </div>

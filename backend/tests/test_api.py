@@ -143,3 +143,24 @@ def test_api_dynamic_island_v3_endpoints(tmp_path: Path, monkeypatch):
         assert resp_launch.status_code == 200
         assert resp_launch.json()["status"] in ["launched", "error"]
 
+    # 7. Hardware hooks endpoints
+    resp_screen = client.get("/api/v1/system/screen")
+    assert resp_screen.status_code == 200
+    assert "width" in resp_screen.json()
+
+    resp_vol = client.get("/api/v1/system/volume")
+    assert resp_vol.status_code == 200
+    assert "level" in resp_vol.json()
+
+    resp_bright = client.get("/api/v1/system/brightness")
+    assert resp_bright.status_code == 200
+    assert "level" in resp_bright.json()
+
+    resp_bat = client.get("/api/v1/system/battery")
+    assert resp_bat.status_code == 200
+    assert "percent" in resp_bat.json()
+
+    resp_locks = client.get("/api/v1/system/lock-keys")
+    assert resp_locks.status_code == 200
+    assert "caps_lock" in resp_locks.json()
+

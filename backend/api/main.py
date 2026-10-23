@@ -29,6 +29,19 @@ from backend.core.hardware_detector import detect_hardware_profile, unload_local
 from backend.core.llm_router import router
 from backend.core.state import ApprovalDecision, HardwareProfile
 from backend.core.token_tracker import get_token_usage_summary
+from backend.core.os_bridge import (
+    get_screen_info,
+    get_master_volume,
+    set_master_volume,
+    set_master_mute,
+    get_screen_brightness,
+    set_screen_brightness,
+    get_lock_keys,
+    get_battery_status,
+    get_bluetooth_devices,
+    get_media_session,
+)
+from backend.core.app_launcher import app_indexer
 from backend.modules.base_module import registry
 from backend.orchestrator.hitl_gate import get_pending_approvals
 from backend.orchestrator.supervisor import build_karsa_supervisor_graph
@@ -712,67 +725,162 @@ def delete_shelf_file_endpoint(shelf_id: int) -> dict[str, Any]:
     return {"status": "deleted" if deleted else "not_found", "id": shelf_id}
 
 
-@app.get("/api/v1/system/apps")
-def search_system_apps_endpoint(q: str = "") -> dict[str, Any]:
-    """Search installed Windows applications or return common developer suite."""
-    from pathlib import Path
-    import os
+# ---------------------------------------------------------------------------
+# Native Windows Hardware Hooks & System Telemetry Endpoints
+# ---------------------------------------------------------------------------
 
-    query = q.lower().strip()
-    apps: list[dict[str, str]] = []
+class VolumeSetRequest(BaseModel):
+    level: int | None = Field(default=None, ge=0, le=100)
+    muted: bool | None = None
 
-    start_menu_dirs = [
-        Path(os.environ.get("PROGRAMDATA", "C:\\ProgramData")) / "Microsoft\\Windows\\Start Menu\\Programs",
-        Path(os.environ.get("APPDATA", "")) / "Microsoft\\Windows\\Start Menu\\Programs",
-    ]
 
-    seen = set()
-    for d in start_menu_dirs:
-        if d.exists():
-            for p in d.rglob("*.lnk"):
-                name = p.stem
-                if name.lower().startswith("uninstall") or name.lower().startswith("help"):
-                    continue
-                if name.lower() not in seen:
-                    seen.add(name.lower())
-                    if not query or query in name.lower():
-                        apps.append({
-                            "name": name,
-                            "path": str(p),
-                            "type": "installed_app",
-                        })
-
-    # Default common student developer apps if Start Menu scan yields few results
-    fallback_defaults = [
-        {"name": "Visual Studio Code", "path": "code", "type": "editor"},
-        {"name": "Google Chrome", "path": "chrome", "type": "browser"},
-        {"name": "Spotify", "path": "spotify", "type": "media"},
-        {"name": "Windows Terminal", "path": "wt", "type": "terminal"},
-        {"name": "Calculator", "path": "calc", "type": "utility"},
-        {"name": "Notepad", "path": "notepad", "type": "editor"},
-    ]
-    for fa in fallback_defaults:
-        if fa["name"].lower() not in seen:
-            if not query or query in fa["name"].lower():
-                apps.append(fa)
-
-    return {"count": len(apps[:20]), "apps": apps[:20]}
+class BrightnessSetRequest(BaseModel):
+    level: int = Field(ge=0, le=100)
 
 
 class LaunchAppRequest(BaseModel):
     path: str
 
 
+@app.get("/api/v1/system/screen")
+def get_system_screen_endpoint() -> dict[str, Any]:
+    """Return primary monitor resolution, DPI, and scale factor."""
+    return get_screen_info()
+
+
+@app.get("/api/v1/system/volume")
+def get_system_volume_endpoint() -> dict[str, Any]:
+    """Read Windows master volume and mute state via pycaw / CoreAudio."""
+    return get_master_volume()
+
+
+@app.post("/api/v1/system/volume")
+def set_system_volume_endpoint(req: VolumeSetRequest) -> dict[str, Any]:
+    """Set Windows master volume level and/or mute state."""
+    res = {}
+    if req.level is not None:
+        res["volume"] = set_master_volume(req.level)
+    if req.muted is not None:
+        res["mute"] = set_master_mute(req.muted)
+    return {"status": "ok", "result": res}
+
+
+@app.get("/api/v1/system/brightness")
+def get_system_brightness_endpoint() -> dict[str, Any]:
+    """Read laptop screen brightness (0-100)."""
+    return get_screen_brightness()
+
+
+@app.post("/api/v1/system/brightness")
+def set_system_brightness_endpoint(req: BrightnessSetRequest) -> dict[str, Any]:
+    """Set laptop screen brightness (0-100)."""
+    return set_screen_brightness(req.level)
+
+
+@app.get("/api/v1/system/lock-keys")
+def get_system_lock_keys_endpoint() -> dict[str, Any]:
+    """Read real-time CapsLock and NumLock states from Windows user32."""
+    return get_lock_keys()
+
+
+@app.get("/api/v1/system/battery")
+def get_system_battery_endpoint() -> dict[str, Any]:
+    """Read real laptop battery percent and charging state."""
+    return get_battery_status()
+
+
+@app.get("/api/v1/system/bluetooth")
+def get_system_bluetooth_endpoint() -> dict[str, Any]:
+    """List connected / active Bluetooth devices."""
+    devices = get_bluetooth_devices()
+    return {"count": len(devices), "devices": devices}
+
+
+@app.get("/api/v1/system/media-session")
+def get_system_media_session_endpoint() -> dict[str, Any]:
+    """Read current Windows media session (GSMTC)."""
+    return get_media_session()
+
+
+@app.get("/api/v1/system/osd/stream")
+async def system_osd_event_stream(request: Request) -> EventSourceResponse:
+    """Stream real-time hardware events to the Dynamic Island UI."""
+    import asyncio
+
+    async def event_generator():
+        last_locks = get_lock_keys()
+        last_battery = get_battery_status()
+        last_vol = get_master_volume().get("level")
+        last_mute = get_master_volume().get("muted")
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            await asyncio.sleep(0.35)
+
+            # 1. Check Lock Keys
+            curr_locks = get_lock_keys()
+            if curr_locks["caps_lock"] != last_locks["caps_lock"]:
+                last_locks["caps_lock"] = curr_locks["caps_lock"]
+                yield {
+                    "event": "osd://lock-key",
+                    "data": json.dumps({
+                        "key": "CAPS LOCK",
+                        "active": curr_locks["caps_lock"],
+                    }),
+                }
+            if curr_locks["num_lock"] != last_locks["num_lock"]:
+                last_locks["num_lock"] = curr_locks["num_lock"]
+                yield {
+                    "event": "osd://lock-key",
+                    "data": json.dumps({
+                        "key": "NUM LOCK",
+                        "active": curr_locks["num_lock"],
+                    }),
+                }
+
+            # 2. Check Battery & Charger Hook
+            curr_battery = get_battery_status()
+            if (
+                curr_battery.get("charging") != last_battery.get("charging")
+                or abs(curr_battery.get("percent", 0) - last_battery.get("percent", 0)) >= 5
+            ):
+                last_battery = curr_battery
+                yield {
+                    "event": "osd://power",
+                    "data": json.dumps({
+                        "charging": curr_battery.get("charging"),
+                        "percent": curr_battery.get("percent"),
+                    }),
+                }
+
+            # 3. Check Volume
+            vol_info = get_master_volume()
+            curr_vol = vol_info.get("level")
+            curr_mute = vol_info.get("muted")
+            if curr_vol != last_vol or curr_mute != last_mute:
+                last_vol = curr_vol
+                last_mute = curr_mute
+                yield {
+                    "event": "osd://volume",
+                    "data": json.dumps({
+                        "level": curr_vol,
+                        "muted": curr_mute,
+                    }),
+                }
+
+    return EventSourceResponse(event_generator())
+
+
+@app.get("/api/v1/system/apps")
+def search_system_apps_endpoint(q: str = "") -> dict[str, Any]:
+    """Search installed Windows applications with <10ms in-memory fuzzy index."""
+    results = app_indexer.search(q, limit=20)
+    return {"count": len(results), "apps": results}
+
+
 @app.post("/api/v1/system/apps/launch")
 def launch_system_app_endpoint(req: LaunchAppRequest) -> dict[str, Any]:
-    """Launch an application path or protocol handler on Windows."""
-    import subprocess
-    import os
-    try:
-        if hasattr(os, "startfile") and (os.path.exists(req.path) or req.path.endswith(".lnk")):
-            os.startfile(req.path)
-        else:
-            subprocess.Popen(req.path, shell=True)
-        return {"status": "launched", "path": req.path}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    """Launch an application path on Windows."""
+    return app_indexer.launch(req.path)
