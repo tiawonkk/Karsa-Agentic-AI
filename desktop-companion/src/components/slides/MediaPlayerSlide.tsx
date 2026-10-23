@@ -31,16 +31,26 @@ const DEMO_LYRICS: LyricLine[] = [
 
 interface MediaPlayerSlideProps {
   isDark: boolean;
+  onToggleLyricsState?: (open: boolean) => void;
 }
 
-export const MediaPlayerSlide: React.FC<MediaPlayerSlideProps> = ({ isDark }) => {
+export const MediaPlayerSlide: React.FC<MediaPlayerSlideProps> = ({
+  isDark,
+  onToggleLyricsState,
+}) => {
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(193); // 03:13
-  const [showLyrics, setShowLyrics] = useState(true);
+  const [showLyrics, setShowLyrics] = useState(false);
   const [trackTitle, setTrackTitle] = useState("Paper Sky");
   const [trackArtist, setTrackArtist] = useState("Lumen Coast • Lofi Focus");
   const totalDuration = 256; // 04:16
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (onToggleLyricsState) {
+      onToggleLyricsState(showLyrics);
+    }
+  }, [showLyrics, onToggleLyricsState]);
 
   // Fetch real Windows media session (GSMTC)
   useEffect(() => {
