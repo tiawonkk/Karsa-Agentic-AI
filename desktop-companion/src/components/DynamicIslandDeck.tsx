@@ -1,15 +1,26 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, ChevronRight, Home, MessageSquare, SlidersHorizontal } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Home,
+  MessageSquare,
+  SlidersHorizontal,
+  Search,
+} from "lucide-react";
 
+import { OmniCommandSlide } from "./slides/OmniCommandSlide";
 import { MediaPlayerSlide } from "./slides/MediaPlayerSlide";
 import { PomodoroSlide } from "./slides/PomodoroSlide";
 import { HydrationSlide } from "./slides/HydrationSlide";
 import { FileShelfSlide } from "./slides/FileShelfSlide";
 import { TodoChecklistSlide } from "./slides/TodoChecklistSlide";
+import { SettingsSlide } from "./slides/SettingsSlide";
 
 interface DynamicIslandDeckProps {
   isDark: boolean;
+  activeSlide?: number;
+  focusSearchTrigger?: number;
   onLyricsToggle?: (expanded: boolean) => void;
   onSubmitMessage: (msg: string) => void;
   onCollapse?: () => void;
@@ -19,6 +30,8 @@ interface DynamicIslandDeckProps {
 
 export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = ({
   isDark,
+  activeSlide,
+  focusSearchTrigger,
   onLyricsToggle,
   onSubmitMessage,
   onCollapse,
@@ -26,11 +39,18 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = ({
   onOpenSettings,
 }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const totalSlides = 5;
+  const totalSlides = 7;
   const [currentTimeStr, setCurrentTimeStr] = useState("Fri 23 Oct 2026 07:48");
   const [isLyricsActive, setIsLyricsActive] = useState(false);
 
-  // Real-time clock formatted exactly as "Fri 23 Oct 2026 07:48"
+  // Sync external slide if provided
+  useEffect(() => {
+    if (activeSlide !== undefined) {
+      setCurrentSlide(activeSlide);
+    }
+  }, [activeSlide]);
+
+  // Real-time clock formatted as "Fri 23 Oct 2026 07:48"
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -54,9 +74,13 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = ({
   const nextSlide = () => setCurrentSlide((prev) => (prev + 1) % totalSlides);
   const prevSlide = () => setCurrentSlide((prev) => (prev - 1 + totalSlides) % totalSlides);
 
-  // Keyboard navigation (Arrow keys & Alt+Arrows)
+  // Keyboard navigation (Arrow keys)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't navigate slides if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
       if (e.key === "ArrowRight") nextSlide();
       else if (e.key === "ArrowLeft") prevSlide();
     };
@@ -64,10 +88,10 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Notify parent on lyrics expansion change
+  // Notify parent on lyrics expansion change (Slide 1 is MediaPlayer)
   useEffect(() => {
     if (onLyricsToggle) {
-      onLyricsToggle(currentSlide === 0 && isLyricsActive);
+      onLyricsToggle(currentSlide === 1 && isLyricsActive);
     }
   }, [currentSlide, isLyricsActive, onLyricsToggle]);
 
@@ -76,31 +100,43 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = ({
       case 0:
         return (
           <span>
-            Media <span className="text-orange-400">Player</span>
+            Omni <span className="text-orange-400">Search</span>
           </span>
         );
       case 1:
         return (
           <span>
-            Pomodoro <span className="text-rose-500">Focus</span>
+            Media <span className="text-orange-400">Player</span>
           </span>
         );
       case 2:
         return (
           <span>
-            Water <span className="text-[#38BDF8]">Reminder</span>
+            Pomodoro <span className="text-rose-500">Focus</span>
           </span>
         );
       case 3:
         return (
           <span>
-            Smart <span className="text-amber-400">Shelf</span>
+            Water <span className="text-[#38BDF8]">Reminder</span>
           </span>
         );
       case 4:
         return (
           <span>
+            Smart <span className="text-amber-400">Shelf</span>
+          </span>
+        );
+      case 5:
+        return (
+          <span>
             Todo<span className="text-[#22C55E]">List</span>
+          </span>
+        );
+      case 6:
+        return (
+          <span>
+            System <span className="text-indigo-400">Settings</span>
           </span>
         );
       default:
@@ -141,8 +177,20 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = ({
           <span>{currentTimeStr}</span>
         </div>
 
-        {/* Right: Quick actions (Chat, Settings) & Audio Equalizer Waveform Bars (|||||) */}
+        {/* Right: Quick actions (Search, Chat, Settings) & Audio Equalizer Waveform Bars (|||||) */}
         <div className="flex items-center gap-2">
+          {/* Quick jump to Omni-Search (Slide 0) */}
+          <button
+            type="button"
+            onClick={() => setCurrentSlide(0)}
+            className={`transition-colors cursor-pointer ${
+              currentSlide === 0 ? "text-orange-400" : "text-zinc-500 hover:text-white"
+            }`}
+            title="Omni-Search & App Launcher (Alt+Space)"
+          >
+            <Search className="w-3 h-3" />
+          </button>
+
           {onOpenChat && (
             <button
               type="button"
@@ -153,16 +201,19 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = ({
               <MessageSquare className="w-3 h-3" />
             </button>
           )}
-          {onOpenSettings && (
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
-              title="Settings & Model Manager"
-            >
-              <SlidersHorizontal className="w-3 h-3" />
-            </button>
-          )}
+
+          {/* Quick jump to Settings Slide (Slide 6) */}
+          <button
+            type="button"
+            onClick={() => setCurrentSlide(6)}
+            className={`transition-colors cursor-pointer ${
+              currentSlide === 6 ? "text-indigo-400" : "text-zinc-500 hover:text-white"
+            }`}
+            title="Settings Panel & Model Hot-Swap"
+          >
+            <SlidersHorizontal className="w-3 h-3" />
+          </button>
+
           <div className="flex items-end gap-0.5 h-3.5">
             <span className="w-0.5 h-2 rounded-full bg-white animate-pulse" />
             <span className="w-0.5 h-3.5 rounded-full bg-white animate-pulse delay-75" />
@@ -185,30 +236,43 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = ({
             className="w-full"
           >
             {currentSlide === 0 && (
+              <OmniCommandSlide
+                isDark={isDark}
+                onSubmitMessage={onSubmitMessage}
+                focusTrigger={focusSearchTrigger}
+              />
+            )}
+            {currentSlide === 1 && (
               <MediaPlayerSlide
                 isDark={isDark}
                 onToggleLyricsState={(open) => setIsLyricsActive(open)}
               />
             )}
-            {currentSlide === 1 && <PomodoroSlide isDark={isDark} />}
-            {currentSlide === 2 && <HydrationSlide isDark={isDark} />}
-            {currentSlide === 3 && (
+            {currentSlide === 2 && <PomodoroSlide isDark={isDark} />}
+            {currentSlide === 3 && <HydrationSlide isDark={isDark} />}
+            {currentSlide === 4 && (
               <FileShelfSlide
                 isDark={isDark}
                 onTriggerAction={onSubmitMessage}
               />
             )}
-            {currentSlide === 4 && (
+            {currentSlide === 5 && (
               <TodoChecklistSlide
                 isDark={isDark}
                 onAddTaskPrompt={onSubmitMessage}
+              />
+            )}
+            {currentSlide === 6 && (
+              <SettingsSlide
+                isDark={isDark}
+                onOpenFullSettings={() => onOpenSettings && onOpenSettings()}
               />
             )}
           </motion.div>
         </AnimatePresence>
       </div>
 
-      {/* 3. Bottom Carousel Pagination Dots (••••━) and Navigation Chevrons */}
+      {/* 3. Bottom Carousel Pagination Dots (••••••━) and Navigation Chevrons */}
       <div className="flex items-center justify-between px-2 pt-0.5">
         {/* Left Arrow Button */}
         <button
@@ -220,7 +284,7 @@ export const DynamicIslandDeck: React.FC<DynamicIslandDeckProps> = ({
           <ChevronLeft className="w-3 h-3" />
         </button>
 
-        {/* Pagination Dots (••••━) */}
+        {/* Pagination Dots (••••••━) */}
         <div className="flex items-center gap-1.5">
           {Array.from({ length: totalSlides }).map((_, idx) => {
             const isActive = idx === currentSlide;

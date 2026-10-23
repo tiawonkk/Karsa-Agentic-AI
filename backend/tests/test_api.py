@@ -164,3 +164,22 @@ def test_api_dynamic_island_v3_endpoints(tmp_path: Path, monkeypatch):
     assert resp_locks.status_code == 200
     assert "caps_lock" in resp_locks.json()
 
+    # 8. Model Tier Hot-Swap & Settings
+    resp_model_put = client.put(
+        "/api/v1/settings/models",
+        json={
+            "tier": "tier1_utility",
+            "provider": "gemini",
+            "model": "gemini-2.0-flash",
+            "temperature": 0.2,
+        },
+    )
+    assert resp_model_put.status_code == 200
+    assert resp_model_put.json()["status"] == "updated"
+
+    # 9. Real Token & Cost Analytics
+    resp_tokens = client.get("/api/v1/system/tokens/analytics")
+    assert resp_tokens.status_code == 200
+    assert "totals" in resp_tokens.json()
+    assert "total_cost_idr" in resp_tokens.json()["totals"]
+

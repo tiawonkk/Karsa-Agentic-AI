@@ -2,15 +2,19 @@ import React, { useState, useEffect } from "react";
 
 interface CompactPillViewProps {
   isDark?: boolean;
+  hasPendingApproval?: boolean;
 }
 
 /**
  * CompactPillView: Clean, minimal status pill (210px x 38px).
- * - Left: Green status progress ring (#10B981)
+ * - Left: Green status progress ring (#10B981) or Amber Alert Ring
  * - Center: Bold digital clock (HH:mm)
  * - Right: 5 dynamic animated white audio waveform bars (|||||)
  */
-export const CompactPillView: React.FC<CompactPillViewProps> = ({ isDark = true }) => {
+export const CompactPillView: React.FC<CompactPillViewProps> = ({
+  isDark = true,
+  hasPendingApproval = false,
+}) => {
   const [timeStr, setTimeStr] = useState("07:48");
 
   useEffect(() => {
@@ -27,11 +31,24 @@ export const CompactPillView: React.FC<CompactPillViewProps> = ({ isDark = true 
 
   return (
     <div className="w-full h-full flex items-center justify-between px-2 cursor-pointer">
-      {/* Left: Green Status Ring (#10B981) */}
-      <div className="flex items-center gap-2">
-        <div className="w-4 h-4 rounded-full border-2 border-[#10B981] p-0.5 flex items-center justify-center">
-          <div className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse" />
+      {/* Left: Status Ring (#10B981 or Amber if Pending Approval) */}
+      <div className="flex items-center gap-1.5">
+        <div
+          className={`w-4 h-4 rounded-full border-2 p-0.5 flex items-center justify-center ${
+            hasPendingApproval
+              ? "border-[#D95D39] bg-[#D95D39]/20 shadow-[0_0_8px_rgba(217,93,57,0.5)]"
+              : "border-[#10B981]"
+          }`}
+        >
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${
+              hasPendingApproval ? "bg-[#D95D39] animate-ping" : "bg-[#10B981] animate-pulse"
+            }`}
+          />
         </div>
+        {hasPendingApproval && (
+          <span className="text-[10px] font-mono text-[#D95D39] font-bold">IZIN</span>
+        )}
       </div>
 
       {/* Center: Bold Digital Clock (HH:mm) */}

@@ -20,6 +20,8 @@ type ActivePopover = null | "REPORT" | "TASKS" | "CHAT" | "SETTINGS" | "WARDROBE
 export const NotchIsland: React.FC = () => {
   // Mode state: 4-mode adaptive Dynamic Island
   const [shellMode, setShellMode] = useState<ShellMode>("COMPACT_PILL");
+  const [activeDeckSlide, setActiveDeckSlide] = useState<number>(0);
+  const [focusSearchTrigger, setFocusSearchTrigger] = useState<number>(0);
   const [isLyricsExpanded, setIsLyricsExpanded] = useState(false);
   const [toastData, setToastData] = useState<SystemToastData | null>(null);
   const prevModeRef = useRef<ShellMode>("COMPACT_PILL");
@@ -222,6 +224,15 @@ export const NotchIsland: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Global Shortcut: Alt + Space to open Omni-Search Bar in Dynamic Island
+      if (e.altKey && (e.code === "Space" || e.key === " ")) {
+        e.preventDefault();
+        setShellMode("EXPANDED");
+        setActiveDeckSlide(0);
+        setFocusSearchTrigger((prev) => prev + 1);
+        return;
+      }
+
       if (e.key === "Escape") {
         if (activePopover) {
           setActivePopover(null);
@@ -449,7 +460,10 @@ export const NotchIsland: React.FC = () => {
             }}
             title="Klik untuk membuka Carousel Deck, Dobel-klik untuk Mata AI"
           >
-            <CompactPillView isDark={isDark} />
+            <CompactPillView
+              isDark={isDark}
+              hasPendingApproval={pendingApprovals.length > 0}
+            />
           </div>
         )}
 
@@ -458,10 +472,12 @@ export const NotchIsland: React.FC = () => {
           <SystemToastView toast={toastData} isDark={isDark} />
         )}
 
-        {/* Mode 4: Expanded 5-Slide Carousel Deck (480px / 580px x 185px) */}
+        {/* Mode 4: Expanded 7-Slide Carousel Deck (480px / 580px x 185px) */}
         {shellMode === "EXPANDED" && (
           <DynamicIslandDeck
             isDark={isDark}
+            activeSlide={activeDeckSlide}
+            focusSearchTrigger={focusSearchTrigger}
             onLyricsToggle={(expanded) => setIsLyricsExpanded(expanded)}
             onSubmitMessage={handleSubmit}
             onCollapse={() =>
