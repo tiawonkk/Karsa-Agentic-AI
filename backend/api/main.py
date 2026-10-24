@@ -1576,3 +1576,22 @@ def set_model_override_endpoint(req: ModelOverrideRequest) -> dict[str, Any]:
 
 
 
+
+
+# -------------------------------------------------------------------------
+# Production UI: serve the built desktop-companion (PWA) from the same process.
+# Mounted LAST so every API route keeps priority. Absent dist/ (dev mode) = no mount.
+# -------------------------------------------------------------------------
+UI_DIST_DIR = Path(__file__).resolve().parents[2] / "desktop-companion" / "dist"
+
+
+def mount_ui(directory: Path = UI_DIST_DIR) -> bool:
+    from fastapi.staticfiles import StaticFiles
+
+    if not (directory / "index.html").is_file():
+        return False
+    app.mount("/", StaticFiles(directory=str(directory), html=True), name="ui")
+    return True
+
+
+mount_ui()

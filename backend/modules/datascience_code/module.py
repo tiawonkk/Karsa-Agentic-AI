@@ -34,7 +34,7 @@ class DataScienceCodeModule(BaseKarsaModule):
             r"(?:dataset|csv|xlsx|excel|dataframe|pandas|data science|profiling data|sanitasi data)",
             r"(?:debug|refactor|unit test|mcp|patch kode|linting)",
         ],
-        model_tier="tier2_reasoning",
+        model_tier="tier2_code",
         high_risk_actions=["run_shell_command", "apply_code_patch"],
     )
 
@@ -132,7 +132,7 @@ class DataScienceCodeModule(BaseKarsaModule):
                     "Berikan contoh kode yang efisien, berikan penjelasan baris per baris, dan gunakan bahasa Indonesia yang ramah."
                 )
                 model = ctx.router.get_model(
-                    tier="tier2_reasoning",
+                    tier="tier2_code",
                     module_name="datascience_code",
                     session_thread_id=ctx.session_thread_id,
                 )

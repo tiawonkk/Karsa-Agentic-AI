@@ -39,7 +39,7 @@ class ResearchModule(BaseKarsaModule):
             r"(?:metodologi penelitian|limitasi riset|state of the art)",
             r"\bpaper\b",
         ],
-        model_tier="tier1_utility",
+        model_tier="tier3_reasoning",
         high_risk_actions=[],
     )
 
@@ -109,7 +109,7 @@ class ResearchModule(BaseKarsaModule):
                     "secara kritis, runut, dan objektif dalam bahasa Indonesia akademis yang mudah dipahami."
                 )
                 model = ctx.router.get_model(
-                    tier="tier1_utility",
+                    tier="tier3_reasoning",
                     module_name="research",
                     session_thread_id=ctx.session_thread_id,
                 )
@@ -147,7 +147,7 @@ class WriterModule(BaseKarsaModule):
             r"(?:imrad|karya ilmiah|skripsi|makalah|draft paper)",
             r"\b(?:docx|dokumen word|format word|daftar pustaka|kompilasi docx)\b",
         ],
-        model_tier="tier1_utility",
+        model_tier="tier3_reasoning",
         high_risk_actions=["compile_docx_overwrite"],
     )
 
@@ -277,7 +277,7 @@ class WriterModule(BaseKarsaModule):
                     "dan memperjelas narasi argumen ilmiah."
                 )
                 model = ctx.router.get_model(
-                    tier="tier1_utility",
+                    tier="tier3_reasoning",
                     module_name="writer",
                     session_thread_id=ctx.session_thread_id,
                 )

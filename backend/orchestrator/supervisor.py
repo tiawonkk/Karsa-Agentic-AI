@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+from backend.core.context import compact_history
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -27,6 +29,7 @@ BUILTIN_INTENT_PATTERNS: dict[str, list[str]] = {
     "study_daily": [
         r"(?:tugas|pr|kuliah|matkul|deadline|tenggat|ujian|uts|uas|eisenhower|prioritas)",
         r"(?:rangkum|ringkas|slide|materi|diktat|silabus|kursus|roadmap belajar)",
+        r"\b(?:roadmap|belajar)\b",
     ],
     "research": [
         r"(?:arxiv|semantic scholar|crossref|jurnal ilmiah|tinjauan pustaka)",
@@ -40,6 +43,7 @@ BUILTIN_INTENT_PATTERNS: dict[str, list[str]] = {
     "datascience_code": [
         r"(?:dataset|csv|xlsx|excel|dataframe|pandas|data science|profiling data|sanitasi data)",
         r"(?:debug|refactor|unit test|mcp|patch kode|linting)",
+        r"\b(?:bug|error|traceback|script|python|kode|coding)\b",
     ],
 }
 
@@ -146,7 +150,7 @@ def supervisor_triage_node(state: KarsaState) -> dict[str, Any]:
     return {"active_module": None}
 
 
-def _general_llm_answer(prompt: str) -> str:
+def _general_llm_answer(prompt: str, history: str = "") -> str:
     """Answer a free-form question via the Hermes/DeepSeek/Gemini council.
 
     Returns the AI answer or transparent error diagnostic instead of falling back to canned greetings.
@@ -166,7 +170,7 @@ def _general_llm_answer(prompt: str) -> str:
             "Silakan tambahkan `GEMINI_API_KEY` di menu Settings atau file `.env` untuk mengaktifkan obrolan AI."
         )
     try:
-        result = run_council(prompt, mode="auto")
+        result = run_council(prompt, mode="auto", context=history)
         if result.get("ok") and result.get("answer"):
             return result["answer"]
         err_msg = result.get("error", "Model tidak merespons.")
@@ -209,7 +213,9 @@ def subagent_dispatch_node(state: KarsaState) -> dict[str, Any]:
                 "Ada yang bisa kubantu? Kamu bisa langsung ketik pengeluaran (*\"kopi 15rb\"*), tugas kuliah, atau minta draf paper riset!"
             )
         else:
-            response_text = _general_llm_answer(last_user_raw)
+            # earlier turns (without the question itself), compacted once they pass ~3000 tokens
+            earlier = state.get("messages", [])[:-1]
+            response_text = _general_llm_answer(last_user_raw, compact_history(earlier))
 
         return {"messages": [AIMessage(content=response_text)]}
 
