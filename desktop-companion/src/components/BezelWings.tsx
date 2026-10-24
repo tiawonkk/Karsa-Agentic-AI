@@ -14,7 +14,7 @@ export const BezelWings: React.FC<BezelWingsProps> = ({
   isDark = true,
   showBacklight = true,
 }) => {
-  const notchColor = isDark ? "#000000" : "#FAF9F6";
+  const notchColor = isDark ? "rgba(24, 24, 29, 0.92)" : "rgba(255, 255, 255, 0.95)";
 
   return (
     <>
@@ -23,15 +23,16 @@ export const BezelWings: React.FC<BezelWingsProps> = ({
         <div
           className="absolute -top-6 left-1/2 -translate-x-1/2 w-[120%] h-32 rounded-full pointer-events-none -z-10 blur-2xl opacity-70 transition-opacity duration-700"
           style={{
-            background:
-              "radial-gradient(ellipse at top, rgba(59, 130, 246, 0.22) 0%, rgba(147, 51, 234, 0.15) 45%, transparent 75%)",
+            background: isDark
+              ? "radial-gradient(ellipse at top, rgba(59, 130, 246, 0.22) 0%, rgba(147, 51, 234, 0.15) 45%, transparent 75%)"
+              : "radial-gradient(ellipse at top, rgba(255, 255, 255, 0.8) 0%, rgba(224, 231, 255, 0.35) 45%, transparent 75%)",
           }}
         />
       )}
 
       {/* Left Concave Wing (C1-continuous reverse-curve ear) */}
       <svg
-        className="absolute top-0 -left-[18px] w-[18px] h-[18px] pointer-events-none z-30"
+        className="absolute top-0 -left-[17.5px] w-[18px] h-[18px] pointer-events-none z-30"
         viewBox="0 0 18 18"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
@@ -45,7 +46,7 @@ export const BezelWings: React.FC<BezelWingsProps> = ({
 
       {/* Right Concave Wing (C1-continuous reverse-curve ear) */}
       <svg
-        className="absolute top-0 -right-[18px] w-[18px] h-[18px] pointer-events-none z-30"
+        className="absolute top-0 -right-[17.5px] w-[18px] h-[18px] pointer-events-none z-30"
         viewBox="0 0 18 18"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"

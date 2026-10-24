@@ -61,15 +61,18 @@ const MODEL_OPTIONS: ModelOption[] = [
 interface SettingsSlideProps {
   isDark: boolean;
   onOpenFullSettings: () => void;
+  isSleeping?: boolean;
+  onSleepChange?: (sleeping: boolean) => void;
 }
 
 export const SettingsSlide: React.FC<SettingsSlideProps> = ({
   isDark,
   onOpenFullSettings,
+  isSleeping = false,
+  onSleepChange,
 }) => {
   const [activeModelId, setActiveModelId] = useState<string>("gemini_flash");
   const [hardwareMode, setHardwareMode] = useState<"turbo_gpu" | "eco_cpu">("eco_cpu");
-  const [isSleeping, setIsSleeping] = useState<boolean>(false);
   const [tokenUsage, setTokenUsage] = useState({
     totalTokens: 0,
     totalCostIdr: 0,
@@ -150,7 +153,7 @@ export const SettingsSlide: React.FC<SettingsSlideProps> = ({
   // Toggle Zero-Heat Sleep Mode
   const handleToggleSleep = async () => {
     const next = !isSleeping;
-    setIsSleeping(next);
+    onSleepChange?.(next);
     if (next) {
       try {
         await fetch("/api/v1/system/sleep", { method: "POST" });
@@ -174,9 +177,9 @@ export const SettingsSlide: React.FC<SettingsSlideProps> = ({
     <div className="w-full flex flex-col justify-between select-none px-1 py-0.5 gap-2 text-xs">
       {/* 1. Model Selector Hot-Swap Row */}
       <div className="space-y-1">
-        <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
+        <div className="flex items-center justify-between text-[10px] text-[#52525B] dark:text-[#A1A1AA] font-mono">
           <span>Hot-Swap AI Model (Real-time):</span>
-          {isUpdatingModel && <span className="text-orange-400 animate-pulse">Menghubungkan...</span>}
+          {isUpdatingModel && <span className="text-orange-500 animate-pulse">Menghubungkan...</span>}
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
@@ -190,7 +193,9 @@ export const SettingsSlide: React.FC<SettingsSlideProps> = ({
                 className={`px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all flex items-center gap-1 flex-shrink-0 cursor-pointer ${
                   isActive
                     ? "bg-orange-600 text-white shadow-sm font-semibold scale-[1.02]"
-                    : "bg-white/[0.04] hover:bg-white/10 text-zinc-300 border border-white/5"
+                    : isDark
+                    ? "bg-[#18181B] hover:bg-white/10 text-zinc-300 border border-[#27272A]"
+                    : "bg-zinc-100 hover:bg-zinc-200 text-[#09090B] border border-zinc-200"
                 }`}
               >
                 {isActive && <Check className="w-3 h-3 stroke-[3]" />}
@@ -209,31 +214,39 @@ export const SettingsSlide: React.FC<SettingsSlideProps> = ({
           onClick={handleToggleHardware}
           className={`flex-1 px-2.5 py-1.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
             hardwareMode === "turbo_gpu"
-              ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
-              : "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+              ? isDark
+                ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                : "bg-amber-50 border-amber-300 text-amber-900"
+              : isDark
+              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+              : "bg-emerald-50 border-emerald-300 text-emerald-900"
           }`}
           title="Klik untuk beralih mode performa"
         >
           <div className="flex items-center gap-1.5">
             {hardwareMode === "turbo_gpu" ? (
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <Zap className="w-3.5 h-3.5 text-amber-500" />
             ) : (
-              <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+              <Cpu className="w-3.5 h-3.5 text-emerald-500" />
             )}
             <span className="font-semibold text-[11px]">
               {hardwareMode === "turbo_gpu" ? "Turbo GPU" : "Eco CPU"}
             </span>
           </div>
-          <span className="text-[9px] font-mono opacity-60">Ganti</span>
+          <span className="text-[9px] font-mono opacity-70">Ganti</span>
         </button>
 
         {/* Real Token & IDR Tracker from SQLite */}
-        <div className="flex-1 px-2.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/5 flex items-center justify-between font-mono">
+        <div
+          className={`flex-1 px-2.5 py-1.5 rounded-xl border flex items-center justify-between font-mono ${
+            isDark ? "bg-[#18181B] border-[#27272A]" : "bg-zinc-100 border-zinc-200"
+          }`}
+        >
           <div className="flex items-center gap-1.5">
-            <Coins className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[10px] text-zinc-300">Biaya Token:</span>
+            <Coins className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-[10px] text-[#52525B] dark:text-[#A1A1AA]">Biaya Token:</span>
           </div>
-          <span className="font-bold text-[11px] text-emerald-400">
+          <span className="font-bold text-[11px] text-emerald-700 dark:text-emerald-400">
             {formatRupiah(tokenUsage.totalCostIdr)}
           </span>
         </div>
@@ -245,19 +258,25 @@ export const SettingsSlide: React.FC<SettingsSlideProps> = ({
           className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer flex-shrink-0 ${
             isSleeping
               ? "bg-indigo-600 border-indigo-400 text-white font-semibold"
-              : "bg-white/[0.04] border-white/5 hover:bg-white/10 text-zinc-300"
+              : isDark
+              ? "bg-[#18181B] border-[#27272A] hover:bg-white/10 text-zinc-300"
+              : "bg-zinc-100 border-zinc-200 hover:bg-zinc-200 text-[#09090B]"
           }`}
           title={isSleeping ? "Bangunkan Karsa" : "Tidurkan (0 FPS 0% VRAM)"}
         >
-          <Moon className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="text-[11px]">{isSleeping ? "Sleeping" : "Sleep"}</span>
+          <Moon className="w-3.5 h-3.5 text-indigo-500" />
+          <span className="text-[11px] font-medium">{isSleeping ? "Sleeping" : "Sleep"}</span>
         </button>
 
         {/* Full Settings Modal Button */}
         <button
           type="button"
           onClick={onOpenFullSettings}
-          className="p-1.5 rounded-xl bg-white/[0.06] hover:bg-white/15 text-zinc-300 hover:text-white transition-colors cursor-pointer flex-shrink-0"
+          className={`p-1.5 rounded-xl border transition-colors cursor-pointer flex-shrink-0 ${
+            isDark
+              ? "bg-[#18181B] border-[#27272A] text-zinc-300 hover:text-white hover:bg-white/10"
+              : "bg-zinc-100 border-zinc-200 text-zinc-700 hover:text-[#09090B] hover:bg-zinc-200"
+          }`}
           title="Buka Pengaturan Lengkap & API Keys"
         >
           <SlidersHorizontal className="w-4 h-4" />

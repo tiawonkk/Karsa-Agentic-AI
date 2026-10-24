@@ -3,7 +3,7 @@
 @import "tailwindcss/utilities";
 
 :root {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
 
   /* 3-Layer Tinted Elevation Shadows (Section 2.2) */
@@ -23,12 +23,69 @@
     0 4px 14px rgba(217, 93, 57, 0.1);
 }
 
-body {
+/* ------------------------------------------------------------------
+ * Theme tokens (single source of truth for every surface).
+ * ThemeContext sets data-theme + the .dark class on <html>.
+ * ------------------------------------------------------------------ */
+:root,
+[data-theme="light"] {
+  --bg-glass: rgba(250, 250, 252, 0.88);
+  --bg-card: rgba(241, 245, 249, 0.92);
+  --bg-pill: rgba(226, 232, 240, 0.75);
+  --border-subtle: rgba(148, 163, 184, 0.28);
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --accent-primary: #0EA5E9;
+  --shadow-soft: 0 10px 30px -6px rgba(15, 23, 42, 0.10);
+  --bg-widget: rgba(255, 255, 255, 0.97);
+  --border-strong: rgba(100, 116, 139, 0.38);
+  --shadow-widget: 0 18px 44px -10px rgba(15, 23, 42, 0.30), 0 2px 6px rgba(15, 23, 42, 0.10);
+}
+
+.dark,
+[data-theme="dark"] {
+  --bg-glass: rgba(18, 18, 23, 0.86);
+  --bg-card: rgba(28, 28, 36, 0.90);
+  --bg-pill: rgba(39, 39, 49, 0.80);
+  --border-subtle: rgba(255, 255, 255, 0.10);
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+  --accent-primary: #38BDF8;
+  --shadow-soft: 0 14px 36px -6px rgba(0, 0, 0, 0.55);
+  --bg-widget: rgba(27, 27, 36, 0.97);
+  --border-strong: rgba(255, 255, 255, 0.24);
+  --shadow-widget: 0 18px 44px -8px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+/* Widgets: near-opaque with a clear edge and a module-coloured top accent, so they stay legible on any desktop */
+.karsa-widget {
+  background: var(--bg-widget);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-widget);
+}
+
+/* Shared surface for the notch, dock, widgets and popups */
+.karsa-surface {
+  background: var(--bg-glass);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+}
+
+html, body, #root {
+  background: transparent !important;
   margin: 0;
   padding: 0;
-  background: transparent;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+  pointer-events: none;
 }
 
 /* Subtle Film Grain (2.5% Opacity) (Section 2.2) */
@@ -38,11 +95,11 @@ body {
   pointer-events: none;
 }
 
-/* Warm Editorial Heading Utility */
+/* Modern Sans Heading Utility */
 .font-editorial {
-  font-family: 'Instrument Serif', Georgia, serif;
-  letter-spacing: -0.03em;
-  line-height: 1.02;
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: -0.02em;
+  font-weight: 600;
 }
 
 /* Tactile Custom Scrollbar (Warm Obsidian) */
@@ -78,4 +135,144 @@ body {
   background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* -------------------------------------------------------------------------
+ * macOS High-Luminance Glass & Playful Auroral Accents (Point 1)
+ * ------------------------------------------------------------------------- */
+.glass-macos-light {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.90) 100%);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.90);
+  box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.12), inset 0 1px 1px rgba(255, 255, 255, 1);
+  color: #0F172A;
+}
+
+.glass-macos-dark {
+  background: linear-gradient(145deg, rgba(24, 24, 29, 0.92) 0%, rgba(15, 15, 20, 0.88) 100%);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.60);
+  color: #F8FAFC;
+}
+
+/* Fresh Playful Auroral Gradients */
+.btn-warm-sunrise {
+  background: linear-gradient(135deg, #FF9A8B 0%, #FF6A88 50%, #6366F1 100%);
+  color: #FFFFFF;
+  box-shadow: 0 4px 14px rgba(255, 106, 136, 0.35);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-warm-sunrise:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.btn-warm-sunrise:active {
+  transform: scale(0.96);
+}
+
+.gradient-fresh-mint {
+  background: linear-gradient(90deg, #059669 0%, #10B981 50%, #6EE7B7 100%);
+}
+
+.gradient-sky-aqua {
+  background: linear-gradient(90deg, #0284C7 0%, #38BDF8 100%);
+}
+
+/* -------------------------------------------------------------------------
+ * True Liquid Glassmorphism Utilities
+ * ------------------------------------------------------------------------- */
+.liquid-glass-light {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.90) 100%);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.90);
+  box-shadow: 0 16px 40px -8px rgba(15, 23, 42, 0.12), inset 0 1px 1px rgba(255, 255, 255, 1);
+  color: #0F172A;
+}
+
+.liquid-glass-dark {
+  background: linear-gradient(145deg, rgba(24, 24, 29, 0.92) 0%, rgba(15, 15, 20, 0.88) 100%);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.60);
+  color: #F8FAFC;
+}
+
+.liquid-specular-light {
+  position: relative;
+}
+.liquid-specular-light::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), transparent);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.liquid-specular-dark {
+  position: relative;
+}
+.liquid-specular-dark::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.liquid-frosted-pill {
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.40);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.liquid-frosted-pill:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+.liquid-frosted-pill:active {
+  transform: scale(0.95);
+}
+
+/* -------------------------------------------------------------------------
+ * Instruction 5: 100% Unified Desktop Glass Utilities
+ * ------------------------------------------------------------------------- */
+.unified-glass-light {
+  background: rgba(255, 255, 255, 0.90) !important;
+  backdrop-filter: blur(32px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
+  border: 1px solid rgba(226, 232, 240, 0.80) !important;
+  color: #0F172A !important;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.10) !important;
+}
+
+.unified-glass-dark {
+  background: rgba(9, 9, 11, 0.90) !important;
+  backdrop-filter: blur(32px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  color: #F8FAFC !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55) !important;
+}
+
+.unified-card-light {
+  background: rgba(241, 245, 249, 0.80) !important;
+  border: 1px solid rgba(226, 232, 240, 0.70) !important;
+  color: #0F172A !important;
+}
+
+.unified-card-dark {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  color: #F8FAFC !important;
 }

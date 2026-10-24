@@ -88,11 +88,14 @@ def add_task_in_db(
     due_at: str | datetime.datetime | None = None,
     is_important: int = 1,
     is_urgent: int | None = None,
+    priority: int | None = None,
+    recurrence: str | None = None,
     db_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Insert task into database with automatic Eisenhower Matrix quadrant calculation."""
     if not title.strip():
         raise ValueError("Judul tugas tidak boleh kosong.")
+    recurrence = _check_recurrence(recurrence)
 
     due_str: str | None = None
     due_dt: datetime.datetime | None = None
@@ -108,21 +111,31 @@ def add_task_in_db(
         else:
             due_str = due_at.strip()
 
-    # Determine urgency: if not explicitly supplied, calculate based on 48-hour threshold
-    if is_urgent is None:
-        effective_urgent = is_auto_urgent(due_dt)
+    # Map priority 1..4 to Eisenhower matrix flags if specified
+    if priority == 1:
+        is_important, effective_urgent = 1, 1
+    elif priority == 2:
+        is_important, effective_urgent = 1, 0
+    elif priority == 3:
+        is_important, effective_urgent = 0, 1
+    elif priority == 4:
+        is_important, effective_urgent = 0, 0
     else:
-        effective_urgent = 1 if is_urgent else 0
+        # Determine urgency: if not explicitly supplied, calculate based on 48-hour threshold
+        if is_urgent is None:
+            effective_urgent = is_auto_urgent(due_dt)
+        else:
+            effective_urgent = 1 if is_urgent else 0
 
     with get_db_cursor(db_path) as cursor:
         cursor.execute(
             """
             INSERT INTO tasks (
                 title, description, course, task_type, due_at,
-                is_urgent, is_important, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'todo');
+                is_urgent, is_important, status, recurrence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'todo', ?);
             """,
-            (title.strip(), description, course, task_type, due_str, effective_urgent, is_important),
+            (title.strip(), description, course, task_type, due_str, effective_urgent, is_important, recurrence),
         )
         task_id = cursor.lastrowid
         cursor.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,))
@@ -130,19 +143,44 @@ def add_task_in_db(
         return dict(row) if row else {}
 
 
+TASK_TIME_FMT = "%Y-%m-%d %H:%M:%S"
+RECURRENCES = ("daily", "weekdays", "weekly")
+
+
+def _check_recurrence(value: str | None) -> str | None:
+    if value in (None, "", "none"):
+        return None
+    if value not in RECURRENCES:
+        raise ValueError("Pengulangan harus daily, weekdays, atau weekly.")
+    return value
+
+
 def list_tasks_from_db(
     status: str = "todo",
     quadrant: str | None = None,
     course: str | None = None,
     db_path: Path | str | None = None,
+    recent_done_hours: int = 0,
+    now: datetime.datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch tasks filtered by status and Eisenhower quadrant."""
-    query = "SELECT * FROM tasks WHERE 1=1"
-    params: list[Any] = []
+    """Fetch tasks filtered by status and Eisenhower quadrant, ordered by priority P1..P4.
+
+    - A routine's next instance stays hidden until its `available_from` time.
+    - With `recent_done_hours`, tasks finished within that window are included too, so a task you just checked
+      stays visible (checked) instead of vanishing; after the window it drops out of this view (history stays in SQLite).
+    """
+    now = now or datetime.datetime.now()
+    query = "SELECT * FROM tasks WHERE (available_from IS NULL OR available_from <= ?)"
+    params: list[Any] = [now.strftime(TASK_TIME_FMT)]
 
     if status != "all":
-        query += " AND status = ?"
-        params.append(status)
+        if recent_done_hours > 0:
+            cutoff = (now - datetime.timedelta(hours=recent_done_hours)).strftime(TASK_TIME_FMT)
+            query += " AND (status = ? OR (status = 'done' AND completed_at >= ?))"
+            params += [status, cutoff]
+        else:
+            query += " AND status = ?"
+            params.append(status)
 
     if quadrant:
         query += " AND quadrant = ?"
@@ -152,7 +190,7 @@ def list_tasks_from_db(
         query += " AND course LIKE ?"
         params.append(f"%{course}%")
 
-    query += " ORDER BY is_urgent DESC, due_at ASC, id ASC"
+    query += " ORDER BY is_important DESC, is_urgent DESC, due_at ASC, id DESC"
 
     with get_db_cursor(db_path) as cursor:
         cursor.execute(query, params)
@@ -160,12 +198,25 @@ def list_tasks_from_db(
         return [dict(r) for r in rows]
 
 
+def next_routine_time(done_at: datetime.datetime, recurrence: str) -> datetime.datetime:
+    """When a finished routine reappears: daily +24 h, weekdays +24 h skipping the weekend, weekly +7 days."""
+    if recurrence == "weekly":
+        return done_at + datetime.timedelta(days=7)
+    nxt = done_at + datetime.timedelta(hours=24)
+    if recurrence == "weekdays":
+        while nxt.weekday() >= 5:  # Sat/Sun -> next day until Monday
+            nxt += datetime.timedelta(days=1)
+    return nxt
+
+
 def complete_task_in_db(
     task_id: int,
     db_path: Path | str | None = None,
+    now: datetime.datetime | None = None,
 ) -> dict[str, Any]:
-    """Mark a task as done with completion timestamp."""
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """Mark a task as done. A routine task also schedules its next instance (hidden until it is due again)."""
+    now = now or datetime.datetime.now()
+    now_str = now.strftime(TASK_TIME_FMT)
     with get_db_cursor(db_path) as cursor:
         cursor.execute(
             """
@@ -178,8 +229,75 @@ def complete_task_in_db(
         if cursor.rowcount == 0:
             raise ValueError(f"Tugas dengan ID {task_id} tidak ditemukan.")
         cursor.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else {}
+        row = dict(cursor.fetchone())
+
+        if row.get("recurrence"):
+            cursor.execute("SELECT 1 FROM tasks WHERE routine_parent_id = ?;", (task_id,))
+            if cursor.fetchone() is None:  # idempotent: completing twice never spawns two copies
+                when = next_routine_time(now, row["recurrence"])
+                shift = when - now
+                due = row.get("due_at")
+                new_due = due
+                if due:
+                    try:
+                        new_due = (datetime.datetime.strptime(due, TASK_TIME_FMT) + shift).strftime(TASK_TIME_FMT)
+                    except ValueError:
+                        new_due = due
+                cursor.execute(
+                    """
+                    INSERT INTO tasks (title, description, course, task_type, due_at, is_urgent, is_important,
+                                       status, recurrence, available_from, routine_parent_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'todo', ?, ?, ?);
+                    """,
+                    (
+                        row["title"], row["description"], row["course"], row["task_type"], new_due,
+                        row["is_urgent"], row["is_important"], row["recurrence"], when.strftime(TASK_TIME_FMT), task_id,
+                    ),
+                )
+                row["next_available_from"] = when.strftime(TASK_TIME_FMT)
+        return row
+
+
+def reopen_task_in_db(task_id: int, db_path: Path | str | None = None) -> dict[str, Any]:
+    """Undo a completion. A routine's not-yet-visible next instance is removed so it is not duplicated."""
+    with get_db_cursor(db_path) as cursor:
+        cursor.execute("UPDATE tasks SET status = 'todo', completed_at = NULL WHERE id = ?;", (task_id,))
+        if cursor.rowcount == 0:
+            raise ValueError(f"Tugas dengan ID {task_id} tidak ditemukan.")
+        cursor.execute("DELETE FROM tasks WHERE routine_parent_id = ? AND status = 'todo';", (task_id,))
+        cursor.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,))
+        return dict(cursor.fetchone())
+
+
+def set_task_recurrence(task_id: int, recurrence: str | None, db_path: Path | str | None = None) -> dict[str, Any]:
+    recurrence = _check_recurrence(recurrence)
+    with get_db_cursor(db_path) as cursor:
+        cursor.execute("UPDATE tasks SET recurrence = ? WHERE id = ?;", (recurrence, task_id))
+        if cursor.rowcount == 0:
+            raise ValueError(f"Tugas dengan ID {task_id} tidak ditemukan.")
+        cursor.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,))
+        return dict(cursor.fetchone())
+
+
+def dedupe_pending_tasks(db_path: Path | str | None = None) -> int:
+    """Drop duplicates among pending tasks: same title, course, type, priority, routine and due DATE.
+
+    The time of day is ignored (generators stamp "now + 7 days", so copies differ by seconds); a different date counts
+    as a different task. The oldest copy is kept; the others are marked 'dropped' (not deleted), and finished tasks are
+    never touched. Returns how many were dropped.
+    """
+    with get_db_cursor(db_path) as cursor:
+        cursor.execute(
+            """
+            UPDATE tasks SET status = 'dropped'
+            WHERE status = 'todo' AND id NOT IN (
+                SELECT MIN(id) FROM tasks WHERE status = 'todo'
+                GROUP BY lower(trim(title)), COALESCE(course, ''), task_type, COALESCE(substr(due_at, 1, 10), ''),
+                         is_important, is_urgent, COALESCE(recurrence, ''), COALESCE(available_from, '')
+            );
+            """
+        )
+        return cursor.rowcount
 
 
 def drop_task_in_db(
@@ -196,7 +314,19 @@ def drop_task_in_db(
         return dict(row) if row else {}
 
 
-# Document Extractor (.pdf, .docx, .txt, .md)
+def delete_task_in_db(
+    task_id: int,
+    db_path: Path | str | None = None,
+) -> bool:
+    """Delete a task permanently from SQLite database."""
+    with get_db_cursor(db_path) as cursor:
+        cursor.execute("DELETE FROM tasks WHERE id = ?;", (task_id,))
+        if cursor.rowcount == 0:
+            raise ValueError(f"Tugas dengan ID {task_id} tidak ditemukan.")
+        return True
+
+
+# Document Extractor (.pdf, .docx, .pptx, .txt, .md)
 def extract_text_from_file(file_path: Path | str) -> str:
     """Extract clean text content from supported academic document files."""
     p = Path(file_path).expanduser().resolve()
@@ -227,8 +357,17 @@ def extract_text_from_file(file_path: Path | str) -> str:
                 pages_text.append(t)
         return "\n".join(pages_text)
 
+    elif ext == ".pptx":
+        from pptx import Presentation
+        lines: list[str] = []
+        for idx, slide in enumerate(Presentation(str(p)).slides, start=1):
+            texts = [sh.text_frame.text.strip() for sh in slide.shapes if sh.has_text_frame and sh.text_frame.text.strip()]
+            if texts:
+                lines.append(f"[Slide {idx}] " + " | ".join(texts))
+        return "\n".join(lines)
+
     else:
-        raise ValueError(f"Format file '{ext}' belum didukung. Gunakan .pdf, .docx, .txt, atau .md.")
+        raise ValueError(f"Format file '{ext}' belum didukung. Gunakan .pdf, .docx, .pptx, .txt, atau .md.")
 
 
 def save_study_summary_in_db(
@@ -378,8 +517,19 @@ def generate_skill_roadmap(
         now = datetime.datetime.now()
         for idx, w in enumerate(plan["weeks"]):
             due_target = now + datetime.timedelta(days=(idx + 1) * 7)
+            title = f"Minggu {w['week']}: {w['title']}"
+            # Idempotent: asking for the same roadmap again must not pile up copies of milestones still pending
+            with get_db_cursor(db_path) as cursor:
+                cursor.execute(
+                    "SELECT id FROM tasks WHERE status = 'todo' AND task_type = 'roadmap' AND title = ? AND course = ?;",
+                    (title, "Skill Roadmap Mandiri"),
+                )
+                existing = cursor.fetchone()
+            if existing:
+                registered_task_ids.append(existing["id"])
+                continue
             t = add_task_in_db(
-                title=f"Minggu {w['week']}: {w['title']}",
+                title=title,
                 description=f"Tujuan: {w['goal']}\nSumber belajar: {', '.join(w['resources'])}",
                 course="Skill Roadmap Mandiri",
                 task_type="roadmap",

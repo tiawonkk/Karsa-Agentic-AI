@@ -1,42 +1,53 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { createPortal } from "react-dom";
 
 import { NotchShell, ShellMode } from "./NotchShell";
 import { IdleEyesView } from "./IdleEyesView";
 import { CompactPillView } from "./CompactPillView";
 import { SystemToastView, SystemToastData } from "./SystemToastView";
-import { DynamicIslandDeck } from "./DynamicIslandDeck";
+import { NotchBar } from "./NotchBar";
+import { RightSideDock } from "./RightSideDock";
+import { FloatingWidgets } from "./widgets/WidgetLayer";
+import { ChatBridge } from "./widgets/ChatWidget";
+import { useWaterReminder } from "./widgets/WaterWidget";
+import { useWidgets } from "../context/WidgetsContext";
+import { addFileToActiveNotebook, isNotebookFile } from "../lib/notebookApi";
+import { useTheme } from "../context/ThemeContext";
 
 import { WardrobeStudio } from "./WardrobeStudio";
-import { SettingsModal, ThemeMode, NotchSize } from "./SettingsModal";
-import { FinanceReportDrawer } from "./FinanceReportDrawer";
-import { TasksDrawer } from "./TasksDrawer";
-import { ChatDrawer } from "./ChatDrawer";
+import { SettingsModal, NotchSize } from "./SettingsModal";
 import { HitlApprovalPill, PendingApprovalData } from "./HitlApprovalPill";
+import { announceApprovalsChanged } from "./widgets/ApprovalsWidget";
+import { FloatingPopupCard } from "./FloatingPopupCard";
+import { ReceiptPreviewCard, isImageFile } from "./ReceiptPreviewCard";
+import { PeekView } from "./PeekView";
 import { useDashboard } from "../hooks/useDashboard";
+import { SystemStatusProvider } from "../context/SystemStatusContext";
 
-type ActivePopover = null | "REPORT" | "TASKS" | "CHAT" | "SETTINGS" | "WARDROBE";
+type ActivePopover = null | "SETTINGS" | "WARDROBE";
 
 export const NotchIsland: React.FC = () => {
-  // Mode state: 4-mode adaptive Dynamic Island
-  const [shellMode, setShellMode] = useState<ShellMode>("COMPACT_PILL");
-  const [activeDeckSlide, setActiveDeckSlide] = useState<number>(0);
+  // Mode state: 4-mode adaptive Dynamic Island (Defaults to Coucou Mascot Face when idle)
+  const [shellMode, setShellMode] = useState<ShellMode>("IDLE_EYES");
   const [focusSearchTrigger, setFocusSearchTrigger] = useState<number>(0);
-  const [isLyricsExpanded, setIsLyricsExpanded] = useState(false);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [toastData, setToastData] = useState<SystemToastData | null>(null);
-  const prevModeRef = useRef<ShellMode>("COMPACT_PILL");
+  const prevModeRef = useRef<ShellMode>("IDLE_EYES");
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [isSleeping, setIsSleeping] = useState(false);
   const [activePopover, setActivePopover] = useState<ActivePopover>(null);
+  const [directivePopup, setDirectivePopup] = useState<{
+    title: string;
+    badge?: string;
+    badgeColor?: string;
+    result: string;
+  } | null>(null);
 
-  // Appearance & Theme settings
-  const [themeMode, setThemeMode] = useState<ThemeMode>(
-    () => (localStorage.getItem("karsa_theme_mode") as ThemeMode) || "system"
-  );
-  const [systemIsDark, setSystemIsDark] = useState(() =>
-    window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)").matches : true
-  );
+  // Appearance: the theme (light/dark/system) is owned by ThemeContext and drives the CSS variables
+  const { themeMode, setThemeMode, isDark } = useTheme();
+  const { openWidget } = useWidgets();
   const [notchSize, setNotchSize] = useState<NotchSize>(
     () => (localStorage.getItem("karsa_notch_size") as NotchSize) || "compact"
   );
@@ -56,7 +67,44 @@ export const NotchIsland: React.FC = () => {
   const [, setIsDraggingFile] = useState(false);
 
   // Real-time Dashboard Summary
-  const { refresh: refreshDashboard } = useDashboard(isSleeping);
+  const { data: dashboard, refresh: refreshDashboard } = useDashboard(isSleeping);
+
+  // Hover peek: the idle island grows to 220x40 with a greeting and today's Daily Safe Spend
+  const peekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPeekTimer = () => {
+    if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
+    peekTimerRef.current = null;
+  };
+  const handlePeekEnter = () => {
+    clearPeekTimer();
+    if (isSleeping) return;
+    if (shellMode === "IDLE_EYES" || shellMode === "COMPACT_PILL") {
+      const underlying = shellMode;
+      peekTimerRef.current = setTimeout(() => {
+        prevModeRef.current = underlying;
+        setShellMode("PEEK");
+      }, 150);
+    }
+  };
+  const handlePeekLeave = () => {
+    clearPeekTimer();
+    if (shellMode === "PEEK") {
+      peekTimerRef.current = setTimeout(() => {
+        setShellMode((m) => (m === "PEEK" ? (prevModeRef.current === "COMPACT_PILL" ? "COMPACT_PILL" : "IDLE_EYES") : m));
+      }, 250);
+    }
+  };
+  useEffect(() => clearPeekTimer, []);
+
+  // Zero-Heat Sleep: collapse to the idle island, drop any peek/toast, and let the effects below stop pollers
+  const handleSleepChange = (sleeping: boolean) => {
+    setIsSleeping(sleeping);
+    if (sleeping) {
+      clearPeekTimer();
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setShellMode("IDLE_EYES");
+    }
+  };
 
   // Chat conversation
   const [chatHistory, setChatHistory] = useState<Array<{ role: "user" | "assistant"; text: string }>>([
@@ -67,29 +115,21 @@ export const NotchIsland: React.FC = () => {
   ]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
-  const [threadId] = useState<string>(() => `thread_${Date.now()}`);
+  // Survives a page reload: a new id per load would orphan an approval still waiting on the old thread
+  const [threadId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("karsa_thread_id");
+      if (saved) return saved;
+      const fresh = `thread_${Date.now()}`;
+      localStorage.setItem("karsa_thread_id", fresh);
+      return fresh;
+    } catch (_) {
+      return `thread_${Date.now()}`;
+    }
+  });
 
   // HITL Approvals
   const [pendingApprovals, setPendingApprovals] = useState<PendingApprovalData[]>([]);
-
-  // Compute effective dark mode
-  useEffect(() => {
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (e: MediaQueryListEvent) => setSystemIsDark(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
-  }, []);
-
-  const isDark = useMemo(() => {
-    if (themeMode === "light") return false;
-    if (themeMode === "dark") return true;
-    return systemIsDark;
-  }, [themeMode, systemIsDark]);
-
-  // Sync settings to localStorage
-  useEffect(() => {
-    localStorage.setItem("karsa_theme_mode", themeMode);
-  }, [themeMode]);
 
   useEffect(() => {
     localStorage.setItem("karsa_notch_size", notchSize);
@@ -111,7 +151,7 @@ export const NotchIsland: React.FC = () => {
     }
   }, [activeAccessory]);
 
-  // Helper to trigger hardware toast and auto-revert after 2 seconds
+  // Helper to trigger hardware toast and auto-revert after 2.5 seconds to Coucou Mascot Face
   const triggerHardwareToast = (toast: SystemToastData) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     if (shellMode !== "SYSTEM_TOAST") {
@@ -120,12 +160,13 @@ export const NotchIsland: React.FC = () => {
     setToastData(toast);
     setShellMode("SYSTEM_TOAST");
     toastTimerRef.current = setTimeout(() => {
-      setShellMode(prevModeRef.current || "COMPACT_PILL");
-    }, 2000);
+      setShellMode("IDLE_EYES");
+    }, 1800);
   };
 
-  // Hardware OSD SSE Event Stream & Key Listeners
+  // Hardware OSD SSE Event Stream & Key Listeners (closed while asleep: no background watchers)
   useEffect(() => {
+    if (isSleeping) return;
     let eventSource: EventSource | null = null;
     try {
       eventSource = new EventSource("/api/v1/system/osd/stream");
@@ -179,6 +220,18 @@ export const NotchIsland: React.FC = () => {
         } catch (_) {}
       });
 
+      // F1-F12 and media keys, read by the backend (only the key name; see KARSA_FKEY_OSD to turn this off)
+      eventSource.addEventListener("osd://fkey", (e: MessageEvent) => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d.kind === "media") {
+            triggerHardwareToast({ category: "media", title: d.key, subtitle: d.label, mediaKey: d.key });
+          } else {
+            triggerHardwareToast({ category: "fkey", title: d.label, subtitle: `Tombol fungsi ${d.key}`, keyName: d.key });
+          }
+        } catch (_) {}
+      });
+
       eventSource.addEventListener("osd://bluetooth", (e: MessageEvent) => {
         try {
           const d = JSON.parse(e.data);
@@ -218,7 +271,7 @@ export const NotchIsland: React.FC = () => {
       window.removeEventListener("keydown", handleKeyDown);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
-  }, [shellMode]);
+  }, [shellMode, isSleeping]);
 
   // Click-outside listener & Escape shortcut
   const containerRef = useRef<HTMLDivElement>(null);
@@ -228,7 +281,6 @@ export const NotchIsland: React.FC = () => {
       if (e.altKey && (e.code === "Space" || e.key === " ")) {
         e.preventDefault();
         setShellMode("EXPANDED");
-        setActiveDeckSlide(0);
         setFocusSearchTrigger((prev) => prev + 1);
         return;
       }
@@ -237,7 +289,7 @@ export const NotchIsland: React.FC = () => {
         if (activePopover) {
           setActivePopover(null);
         } else if (shellMode === "EXPANDED") {
-          setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL");
+          setShellMode("IDLE_EYES");
         }
       }
     };
@@ -249,7 +301,7 @@ export const NotchIsland: React.FC = () => {
         !activePopover
       ) {
         if (shellMode === "EXPANDED") {
-          setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL");
+          setShellMode("IDLE_EYES");
         }
       }
     };
@@ -264,10 +316,12 @@ export const NotchIsland: React.FC = () => {
 
   // Poll for pending HITL approvals
   useEffect(() => {
+    if (isSleeping) return;
+    let cancelled = false;
     let timer: NodeJS.Timeout;
     const fetchApprovals = async () => {
       try {
-        const res = await fetch(`/api/v1/approvals/pending?thread_id=${threadId}`);
+        const res = await fetch("/api/v1/approvals/pending");
         if (res.ok) {
           const data = await res.json();
           setPendingApprovals(data.pending_approvals || []);
@@ -275,12 +329,15 @@ export const NotchIsland: React.FC = () => {
       } catch (e) {
         // silent fail
       } finally {
-        timer = setTimeout(fetchApprovals, 6000);
+        if (!cancelled) timer = setTimeout(fetchApprovals, 6000);
       }
     };
     fetchApprovals();
-    return () => clearTimeout(timer);
-  }, [threadId]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [isSleeping]);
 
   // Submit message: Checks for deterministic directives first (0-token execution)
   const handleSubmit = async (customText: string) => {
@@ -298,10 +355,13 @@ export const NotchIsland: React.FC = () => {
         if (res.ok) {
           const parsed = await res.json();
           if (parsed.is_directive && parsed.execution_result) {
-            setFeedbackToast(parsed.execution_result);
-            setTimeout(() => {
-              setFeedbackToast(null);
-            }, 4000);
+            const cmd = text.split(" ")[0];
+            setDirectivePopup({
+              title: `Hasil Direktif ${cmd}`,
+              badge: "BERHASIL",
+              badgeColor: "text-emerald-500 bg-emerald-500/10 border-emerald-500/30",
+              result: parsed.execution_result,
+            });
             refreshDashboard();
             return;
           }
@@ -312,7 +372,7 @@ export const NotchIsland: React.FC = () => {
     }
 
     // 2. Open Chat Drawer and stream assistant response
-    setActivePopover("CHAT");
+    openWidget("chat");
     const newHistory = [...chatHistory, { role: "user" as const, text }];
     setChatHistory(newHistory);
     setIsStreaming(true);
@@ -326,6 +386,22 @@ export const NotchIsland: React.FC = () => {
           thread_id: threadId,
         }),
       });
+
+      if (!response.ok) {
+        let errDetail = "Koneksi ke backend gagal.";
+        try {
+          const errData = await response.json();
+          errDetail = errData.detail || errData.error || errDetail;
+        } catch (_) {}
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: `⚠️ Gagal memanggil AI: ${errDetail}\nPeriksa status API key di menu Settings.`,
+          },
+        ]);
+        return;
+      }
 
       if (!response.body) throw new Error("No response body");
 
@@ -348,6 +424,13 @@ export const NotchIsland: React.FC = () => {
               const data = JSON.parse(line.slice(6));
               if (data.text) {
                 assistantText += data.text;
+                setChatHistory((prev) => {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = { role: "assistant", text: assistantText };
+                  return updated;
+                });
+              } else if (data.error) {
+                assistantText += `\n⚠️ Error: ${data.error}`;
                 setChatHistory((prev) => {
                   const updated = [...prev];
                   updated[updated.length - 1] = { role: "assistant", text: assistantText };
@@ -379,12 +462,14 @@ export const NotchIsland: React.FC = () => {
     const file = files[0];
     const fileName = file.name.toLowerCase();
 
-    if (fileName.endsWith(".csv") || fileName.endsWith(".xlsx")) {
-      handleSubmit(`@Data analisis ${file.name}`);
-    } else if (fileName.endsWith(".pdf") || fileName.endsWith(".docx")) {
-      handleSubmit(`@Study rangkum dokumen ${file.name}`);
-    } else if (file.type.startsWith("image/")) {
-      handleSubmit(`@Money ekstrak struk ${file.name}`);
+    if (isNotebookFile(file)) {
+      // Research files (PDF/DOCX/PPTX/TXT/MD/CSV/XLSX) become sources of the active notebook
+      addFileToActiveNotebook(file)
+        .then(() => openWidget("notebook"))
+        .catch((e) => setFeedbackToast(`⚠️ ${e instanceof Error ? e.message : "Gagal menambah sumber."}`));
+    } else if (isImageFile(file)) {
+      // Receipt photo: OCR into an editable preview; nothing is recorded until the user confirms
+      setReceiptFile(file);
     } else {
       handleSubmit(`@Code periksa file ${file.name}`);
     }
@@ -395,23 +480,46 @@ export const NotchIsland: React.FC = () => {
     actionId: string,
     decision: "approve" | "edit" | "reject"
   ) => {
+    // "Ubah Dulu" needs the parameter editor: hand over to the Approvals widget instead of sending an empty edit
+    if (decision === "edit") {
+      openWidget("approvals");
+      return;
+    }
+    const approval = pendingApprovals.find((a) => a.action_id === actionId);
     try {
-      await fetch(`/api/v1/threads/${threadId}/resume`, {
+      await fetch(`/api/v1/threads/${encodeURIComponent(approval?.session_thread_id ?? threadId)}/resume`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action_id: actionId, decision }),
+        body: JSON.stringify({ action_id: actionId, decision, reviewer_id: "pengguna" }),
       });
       setPendingApprovals((prev) => prev.filter((a) => a.action_id !== actionId));
+      announceApprovalsChanged();
       refreshDashboard();
     } catch (err) {
       console.error(err);
     }
   };
 
+  const chat: ChatBridge = {
+    messages: chatHistory,
+    isStreaming,
+    onSend: (text) => handleSubmit(text),
+    onClear: () =>
+      setChatHistory([
+        { role: "assistant", text: "Halo! Riwayat percakapan telah dibersihkan. Ada yang bisa kubantu?" },
+      ]),
+  };
+
+  // Hydration reminder runs even when the Water widget is closed (paused while asleep)
+  useWaterReminder(isSleeping);
+
   return (
-    <div
-      ref={containerRef}
-      className="fixed top-0 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center select-none font-sans"
+    <SystemStatusProvider onOpenSettings={() => setActivePopover("SETTINGS")} paused={isSleeping}>
+      <div
+        ref={containerRef}
+      className="fixed top-0 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center select-none font-sans pointer-events-auto"
+      onMouseEnter={handlePeekEnter}
+      onMouseLeave={handlePeekLeave}
       onDragEnter={() => setIsDraggingFile(true)}
       onDragLeave={() => setIsDraggingFile(false)}
       onDragOver={(e) => e.preventDefault()}
@@ -423,16 +531,14 @@ export const NotchIsland: React.FC = () => {
       }}
     >
       {/* Dynamic Island V3 NotchShell Chassis with S-Curve Ears */}
-      <NotchShell
-        mode={shellMode}
-        isLyricsExpanded={isLyricsExpanded}
-        isDark={isDark}
-      >
+      <NotchShell mode={shellMode} isDark={isDark}>
         {/* Mode 1: AI Glowing Eyes (190px x 38px) */}
         {shellMode === "IDLE_EYES" && (
           <div
             className="w-full h-full cursor-pointer flex items-center justify-center"
             onClick={() => {
+              // First touch wakes a sleeping Karsa, then opens the deck
+              if (isSleeping) setIsSleeping(false);
               prevModeRef.current = "IDLE_EYES";
               setShellMode("EXPANDED");
             }}
@@ -442,7 +548,7 @@ export const NotchIsland: React.FC = () => {
             }}
             title="Klik untuk membuka Carousel Deck, Dobel-klik untuk Jam & Waveform"
           >
-            <IdleEyesView isDark={isDark} />
+            <IdleEyesView isDark={isDark} isSleeping={isSleeping} />
           </div>
         )}
 
@@ -467,58 +573,93 @@ export const NotchIsland: React.FC = () => {
           </div>
         )}
 
-        {/* Mode 3: Hardware System Toast (340px x 68px) */}
-        {shellMode === "SYSTEM_TOAST" && toastData && (
-          <SystemToastView toast={toastData} isDark={isDark} />
+        {/* Mode 2b: Hover Peek (220px x 40px) */}
+        {shellMode === "PEEK" && (
+          <div
+            className="w-full h-full flex items-center"
+            onClick={() => {
+              clearPeekTimer();
+              setShellMode("EXPANDED");
+            }}
+            title="Klik untuk membuka Carousel Deck"
+          >
+            <PeekView
+              isDark={isDark}
+              mascotColor={mascotColor}
+              eyeColor={eyeColor}
+              dailySafeSpendIdr={dashboard?.finance?.daily_safe_spend_idr ?? null}
+            />
+          </div>
         )}
 
-        {/* Mode 4: Expanded 7-Slide Carousel Deck (480px / 580px x 185px) */}
-        {shellMode === "EXPANDED" && (
-          <DynamicIslandDeck
+        {/* Mode 3: Hardware System Toast (340px x 68px) */}
+        {shellMode === "SYSTEM_TOAST" && toastData && (
+          <SystemToastView
+            toast={toastData}
             isDark={isDark}
-            activeSlide={activeDeckSlide}
-            focusSearchTrigger={focusSearchTrigger}
-            onLyricsToggle={(expanded) => setIsLyricsExpanded(expanded)}
-            onSubmitMessage={handleSubmit}
+            onClick={() => {
+              if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+              setShellMode("EXPANDED");
+            }}
+          />
+        )}
+
+        {/* Mode 4: Expanded micro-notch bar (380px x 115px) */}
+        {shellMode === "EXPANDED" && (
+          <NotchBar
+            isDark={isDark}
+            mascotColor={mascotColor}
+            eyeColor={eyeColor}
+            activeAccessory={activeAccessory}
+            isSleeping={isSleeping}
+            focusTrigger={focusSearchTrigger}
+            onSubmit={handleSubmit}
             onCollapse={() =>
               setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL")
             }
-            onOpenChat={() => setActivePopover((prev) => (prev === "CHAT" ? null : "CHAT"))}
-            onOpenSettings={() => setActivePopover((prev) => (prev === "SETTINGS" ? null : "SETTINGS"))}
+            onOpenWardrobe={() => setActivePopover("WARDROBE")}
           />
         )}
       </NotchShell>
 
+      {/* Right-side mini screen + floating widgets (unmounted while asleep: Zero-Heat) */}
+      {!isSleeping &&
+        createPortal(
+        <>
+          <RightSideDock
+            chat={chat}
+            onOpenSettings={() => setActivePopover("SETTINGS")}
+            onOpenWardrobe={() => setActivePopover("WARDROBE")}
+          />
+          <FloatingWidgets chat={chat} onOpenSettings={() => setActivePopover("SETTINGS")} />
+        </>,
+        // portaled: the notch container has a transform, which would otherwise re-anchor `fixed` children to it
+        document.body
+      )}
+
+      {/* Receipt OCR: editable preview, recorded only after the user confirms */}
+      <ReceiptPreviewCard
+        file={receiptFile}
+        isDark={isDark}
+        onClose={() => setReceiptFile(null)}
+        onRecorded={() => refreshDashboard()}
+      />
+
+      {/* Minimalist Floating Pop-up Card for @Directives & Detailed Results (Rule 4) */}
+      <FloatingPopupCard
+        isOpen={directivePopup !== null}
+        onClose={() => setDirectivePopup(null)}
+        title={directivePopup?.title || "Hasil Direktif"}
+        badge={directivePopup?.badge}
+        badgeColor={directivePopup?.badgeColor}
+        isDark={isDark}
+      >
+        <div className="text-xs leading-relaxed whitespace-pre-wrap font-sans text-zinc-800 dark:text-zinc-200">
+          {directivePopup?.result}
+        </div>
+      </FloatingPopupCard>
+
       {/* Popovers & Drawers */}
-      <FinanceReportDrawer
-        isOpen={activePopover === "REPORT"}
-        onClose={() => setActivePopover(null)}
-        isDark={isDark}
-      />
-
-      <TasksDrawer
-        isOpen={activePopover === "TASKS"}
-        onClose={() => setActivePopover(null)}
-        isDark={isDark}
-      />
-
-      <ChatDrawer
-        isOpen={activePopover === "CHAT"}
-        onClose={() => setActivePopover(null)}
-        messages={chatHistory}
-        isStreaming={isStreaming}
-        onSendMessage={(msg) => handleSubmit(msg)}
-        onClearChat={() =>
-          setChatHistory([
-            {
-              role: "assistant",
-              text: "Halo! Riwayat percakapan telah dibersihkan. Ada yang bisa kubantu?",
-            },
-          ])
-        }
-        isDark={isDark}
-      />
-
       <SettingsModal
         isOpen={activePopover === "SETTINGS"}
         onClose={() => setActivePopover(null)}
@@ -531,51 +672,63 @@ export const NotchIsland: React.FC = () => {
         eyeColor={eyeColor}
         onEyeColorChange={setEyeColor}
         onOpenWardrobe={() => setActivePopover("WARDROBE")}
+        isSleeping={isSleeping}
+        onSleepChange={handleSleepChange}
         isDark={isDark}
       />
 
-      <WardrobeStudio
-        isOpen={activePopover === "WARDROBE"}
-        onClose={() => setActivePopover(null)}
-        currentColor={mascotColor}
-        onColorChange={setMascotColor}
-        currentEyeColor={eyeColor}
-        onEyeColorChange={setEyeColor}
-        activeAccessory={activeAccessory}
-        onSelectAccessory={setActiveAccessory}
-      />
+        <WardrobeStudio
+          isOpen={activePopover === "WARDROBE"}
+          onClose={() => setActivePopover(null)}
+          currentColor={mascotColor}
+          onColorChange={setMascotColor}
+          currentEyeColor={eyeColor}
+          onEyeColorChange={setEyeColor}
+          activeAccessory={activeAccessory}
+          onSelectAccessory={setActiveAccessory}
+          isDark={isDark}
+        />
 
-      {/* Floating Feedback Toast Notification */}
-      <AnimatePresence>
-        {feedbackToast && (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            className={`mt-2 p-3 rounded-2xl border text-xs leading-relaxed whitespace-pre-wrap max-w-sm shadow-xl ${
-              isDark
-                ? "bg-emerald-950/90 border-emerald-500/40 text-emerald-200"
-                : "bg-emerald-50 border-emerald-300 text-emerald-900 shadow-sm"
-            }`}
-          >
-            {feedbackToast}
-          </motion.div>
-        )}
-      </AnimatePresence>
+        {/* Floating Feedback Toast Notification */}
+        <AnimatePresence>
+          {feedbackToast && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className={`mt-2 p-3 rounded-2xl border text-xs leading-relaxed whitespace-pre-wrap max-w-sm shadow-xl ${
+                isDark
+                  ? "bg-emerald-950/90 border-emerald-500/40 text-emerald-200"
+                  : "bg-emerald-50 border-emerald-300 text-emerald-900 shadow-sm"
+              }`}
+            >
+              {feedbackToast}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-      {/* Floating Pending HITL Approval Card */}
-      {pendingApprovals.length > 0 && (
-        <div className="mt-2 space-y-2 max-w-md w-full">
-          {pendingApprovals.map((approval) => (
+        {/* Floating Pending HITL Approval Card */}
+        {pendingApprovals.length > 0 && (
+          <div className="mt-2 space-y-2 max-w-md w-full">
+            {/* One card at a time: its Enter/E/Esc shortcuts must never answer several approvals at once */}
             <HitlApprovalPill
-              key={approval.action_id}
-              approval={approval}
+              key={pendingApprovals[0].action_id}
+              approval={pendingApprovals[0]}
               onDecision={handleApprovalDecision}
             />
-          ))}
-        </div>
-      )}
-    </div>
+            {pendingApprovals.length > 1 && (
+              <button
+                type="button"
+                onClick={() => openWidget("approvals")}
+                className="pointer-events-auto w-full text-center text-[11px] font-medium text-ink-2 hover:text-ink py-1 cursor-pointer"
+              >
+                +{pendingApprovals.length - 1} permintaan lain di widget Approvals
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </SystemStatusProvider>
   );
 };
 

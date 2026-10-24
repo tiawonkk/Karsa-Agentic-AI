@@ -38,6 +38,7 @@ def test_database_initialization_and_tables(tmp_path: Path):
         "schema_migrations",
         "focus_sessions",
         "hydration_logs",
+        "hydration_settings",
         "shelf_files",
     }
     for t in expected_tables:

@@ -10,7 +10,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from backend.core.state import KarsaState, ProposedAction
 from backend.modules.base_module import BaseKarsaModule, ModuleContext, ModuleManifest, registry
-from backend.orchestrator.hitl_gate import check_and_request_approval
+from backend.orchestrator.hitl_gate import check_and_request_approval, execute_approved
 from backend.modules.finance.tools import (
     format_rupiah,
     parse_indonesian_nominal,
@@ -72,38 +72,52 @@ class FinanceModule(BaseKarsaModule):
             if any(kw in cleaned for kw in ["ubah modal", "ganti modal", "set modal", "pagu bulanan", "ubah pagu", "set budget"]):
                 new_nominal = parse_indonesian_nominal(cleaned)
                 if new_nominal and new_nominal > 0:
-                    action_id = f"act_cap_{uuid.uuid4().hex[:8]}"
+                    current_capital = get_budget_snapshot()["total_capital_idr"]
                     prop_action = ProposedAction(
-                        action_id=action_id,
+                        action_id=f"act_cap_{uuid.uuid4().hex[:8]}",  # replaced by a stable id inside the gate
                         module="finance",
                         action_name="set_monthly_capital",
                         args={"new_total_capital_idr": new_nominal},
+                        editable_args=["new_total_capital_idr"],
                         preview=f"Ubah total modal bulanan menjadi {format_rupiah(new_nominal)}",
+                        reason=f"Kamu meminta mengubah pagu bulanan ({last_text.strip()[:80]})",
+                        impact=f"Pagu {format_rupiah(current_capital)} → {format_rupiah(new_nominal)}; "
+                        f"alokasi 5 kategori dihitung ulang secara proporsional.",
+                        fingerprint=f"capital:{current_capital}",
                     )
                     thread_id = ctx.session_thread_id or state.get("session_thread_id") or "default_thread"
                     decision = check_and_request_approval(
                         action=prop_action,
                         session_thread_id=thread_id,
                         module_high_risk_actions=self.manifest.high_risk_actions,
+                        nonce=str(len(messages)),
                     )
-                    if decision and decision.get("decision") == "approve":
-                        res = update_monthly_capital_in_db(new_nominal)
-                        return {
-                            "messages": [
-                                AIMessage(
-                                    content=f"✅ Pagu anggaran bulanan berhasil diperbarui menjadi **{format_rupiah(new_nominal)}**.\n"
-                                    f"Alokasi baru telah disesuaikan secara proporsional untuk 5 kategori."
-                                )
-                            ]
-                        }
-                    else:
-                        return {
-                            "messages": [
-                                AIMessage(
-                                    content="❌ Perubahan pagu anggaran bulanan dibatalkan sesuai keputusanmu."
-                                )
-                            ]
-                        }
+                    if decision and decision.get("decision") in ("approve", "edit"):
+                        final_nominal = int(decision["final_args"]["new_total_capital_idr"])
+                        outcome = execute_approved(
+                            decision["action_id"],
+                            lambda: update_monthly_capital_in_db(final_nominal),
+                            current_fingerprint=f"capital:{get_budget_snapshot()['total_capital_idr']}",
+                        )
+                        if outcome["ran"]:
+                            content = (
+                                f"✅ Pagu anggaran bulanan berhasil diperbarui menjadi **{format_rupiah(final_nominal)}**.\n"
+                                f"Alokasi baru telah disesuaikan secara proporsional untuk 5 kategori."
+                            )
+                        elif outcome["reason"] == "stale":
+                            content = "⚠️ Persetujuan kedaluwarsa: pagu berubah sejak permintaan dibuat, jadi tidak dijalankan. Minta ulang jika masih perlu."
+                        elif outcome["reason"] == "already_executed":
+                            content = "ℹ️ Perubahan pagu ini sudah dijalankan sebelumnya; tidak dijalankan dua kali."
+                        else:
+                            content = f"⚠️ Perubahan pagu gagal dijalankan ({outcome['error'] or outcome['reason']}). Bisa dicoba ulang dari tab Approvals."
+                        return {"messages": [AIMessage(content=content)]}
+                    reason = (decision or {}).get("reason")
+                    note = " (waktu persetujuan habis)" if reason == "timeout" else ""
+                    return {
+                        "messages": [
+                            AIMessage(content=f"❌ Perubahan pagu anggaran bulanan dibatalkan{note}.")
+                        ]
+                    }
 
             # 2. Investment Readiness Intent
             if any(kw in cleaned for kw in ["reksadana", "investasi", "deposito", "bibit", "bareksa", "rdpu", "boleh invest"]):
@@ -111,13 +125,19 @@ class FinanceModule(BaseKarsaModule):
                 return {"messages": [AIMessage(content=eval_res["recommendation"])]}
 
             # 3. Budget / Daily Safe Spend Snapshot Intent
-            if any(kw in cleaned for kw in [
+            budget_keywords = [
                 "daily safe spend", "safe to spend", "saldo", "sisa uang",
-                "sisa anggaran", "cek budget", "rekap pengeluaran", "laporan keuangan"
-            ]):
+                "sisa anggaran", "cek budget", "rekap pengeluaran", "laporan keuangan",
+                "uang saya", "uang ku", "uangku", "cek keuangan", "keuangan saya",
+                "keuangan", "duit", "dompet", "kas", "sisa saldo", "uang"
+            ]
+            if any(kw in cleaned for kw in budget_keywords):
                 snap = get_budget_snapshot()
                 cat = snap["categories"]
                 content = (
+                    f"Total modalmu bulan ini {format_rupiah(snap['total_capital_idr'])}, "
+                    f"sudah terpakai {format_rupiah(snap['total_spent_idr'])}, "
+                    f"dan sisa belanja amanmu hari ini adalah **{format_rupiah(snap['daily_safe_spend_idr'])}/hari**.\n\n"
                     f"📊 **Ringkasan Anggaran ({snap['period']})**\n"
                     f"💰 **Pagu Bulanan:** {format_rupiah(snap['total_capital_idr'])}\n"
                     f"💸 **Total Terpakai:** {format_rupiah(snap['total_spent_idr'])}\n"

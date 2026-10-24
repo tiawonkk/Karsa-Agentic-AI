@@ -88,7 +88,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, className =
     }
     if (line.startsWith("## ")) {
       renderedElements.push(
-        <h3 key={`h3-${idx}`} className="font-editorial text-lg text-[#FAF9F6] mt-2.5 mb-1">
+        <h3 key={`h3-${idx}`} className="font-sans font-bold text-base text-slate-900 dark:text-[#FAF9F6] mt-2.5 mb-1">
           {renderInlineMarkdown(line.slice(3))}
         </h3>
       );

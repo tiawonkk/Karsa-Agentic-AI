@@ -70,6 +70,14 @@ class ProposedAction(BaseContract):
     args: dict[str, Any]
     preview: str | None = None
     target_path: str | None = None
+    # Evidence shown to the reviewer on the approval card
+    reason: str | None = None
+    impact: str | None = None
+    # State of the world when the action was proposed (e.g. a file's size/mtime, the current capital).
+    # If it differs at execution time the approval is stale and must not run.
+    fingerprint: str | None = None
+    # Parameters the reviewer may change when choosing Edit (None = any key of `args`, [] = nothing is editable)
+    editable_args: list[str] | None = None
 
 
 class ApprovalRequest(BaseContract):
@@ -81,6 +89,8 @@ class ApprovalRequest(BaseContract):
     preview: str | None = None
     proposed_args: dict[str, Any]
     created_at: str
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    expires_at: str | None = None
 
 
 class ApprovalDecision(BaseContract):
@@ -88,6 +98,7 @@ class ApprovalDecision(BaseContract):
     decision: Literal["approve", "edit", "reject"]
     edited_args: dict[str, Any] | None = None
     reason: str | None = None
+    reviewer_id: str | None = None
 
 
 class ModuleResult(BaseContract):

@@ -1,365 +1,164 @@
-# UI & Companion Engine Specification: Project Karsa (Desktop Island & Mascot)
+# UI & Companion Engine Specification: Project Karsa
+**(macOS Liquid Glass, Compact Dynamic Island, Mochi Mascot, & Draggable Widgets)**
 
-> **Versi Dokumen:** 1.0 · **Terakhir diperbarui:** 2026-10-22  
-> **Inspirasi Desain:** Arsitektur Notch Companion `louis-cfm/coucou`  
-> **Teknologi Utama:** Tauri v2 (Rust Window Manager) + React/Next.js + HTML5 Canvas 2D + Tailwind CSS + Framer Motion  
+> **Versi Dokumen:** 2.0 · **Terakhir diperbarui:** 2026-10-23
+> **Menggantikan** versi 1.0 (island 540px, palet "Warm Editorial"); versi lama masih ada di riwayat git (commit `30fc750`).
 
----
+> **Arsitektur v3 (2026-10-23): Dual-Zone + Widget.** Menggantikan carousel 6-slide di dalam Notch.
+>
+> - **Tema:** CSS variables di `index.css` (`--bg-glass`, `--bg-card`, `--bg-pill`, `--border-subtle`, `--text-primary/secondary/muted`, `--accent-primary`, `--shadow-soft`) dengan `data-theme` + class `.dark` pada `<html>`. `ThemeContext` menyimpan pilihan di localStorage dan tabel `system_settings` (`ui.theme`, `GET/PUT /api/v1/settings/theme`). Tombol `☀️/🌙` ada di Notch (bar expanded) dan header Right-Side Dock. **Semua** surface (Notch, Dock, widget, Settings, Wardrobe, popup) memakai variabel yang sama; tidak ada lagi notch yang selalu hitam.
+> - **Zona A, Micro-Notch (`NotchShell`/`NotchBar`):** idle 145x30; peek 220x40; OSD toast 265x40; expanded 380x115 (maskot Mochi kiri, jam, toggle tema, input `@Directive`/pencari aplikasi Start Menu, 8 ikon peluncur direktif).
+> - **Zona B, Right-Side Dock (`RightSideDock`):** 275px, `min-h 260 / max-h 78vh`, collapsible menjadi tab 8x64. Header: toggle tema, badge status AI, Settings, Wardrobe. Isi: widget yang di-dock + baris peluncur 6 widget.
+> - **Widget (`widgets/ResizableWidget.tsx` = `WidgetContainer`):** Pomodoro, Water, Todo, Finance, Media, AI Chat. Ukuran **S** nano pill 150x40, **M** kartu 250x155, **L** 310x280; widget floating juga bisa di-resize bebas dari sudut kanan bawah (layout dipilih dari dimensi). Header: `[S|M|L]` `[⇄ dock/undock]` `[— minimize ke S]` `[× tutup]`. State widget (open/docked/size/posisi) disimpan di localStorage (`karsa_widgets_v1`). Pomodoro berjalan di `stores/pomodoroStore.ts` (di luar React) sehingga timer tidak hilang saat widget dipindah/ditutup.
+> - Dock dan widget floating di-portal ke `document.body` (Notch punya `transform`, yang akan men-anchor ulang elemen `fixed`). Saat Zero-Heat Sleep aktif, dock dan widget tidak di-mount.
+>
+> - **Visibilitas widget:** kartu memakai `.karsa-widget` (permukaan hampir opak `--bg-widget`, tepi `--border-strong`, bayangan `--shadow-widget`) plus garis aksen 2.5px berwarna per modul di sisi atas. Saat backend mati, widget menampilkan state "Server Karsa tidak terjangkau" + tombol *Coba lagi*, bukan spinner tanpa akhir.
+> - **Tarik keluar dari Dock:** seret header (atau pill S) widget yang di-dock; ia tetap di tempat selama kursor masih di dalam panel Dock, lalu terlepas dan mengikuti kursor begitu keluar. Hint zona drop sama dengan widget floating.
+> - **Gestur widget floating:** seret ke tepi kiri layar untuk menyembunyikan (hint glow + label), seret ke atas Dock untuk memasukkan (hint outline), klik dua kali header/pill untuk menyembunyikan. Tekan ikon peluncurnya lagi di Dock (atau `Alt+1..6`) untuk menampilkan/menyembunyikan. Posisi terakhir selalu dijaga agar widget muncul kembali di dalam layar.
+> - **Tombol pill S:** `[⇄ lepas/masukkan] [⤢ perbesar] [× tutup]` muncul saat hover di sisi kiri-atas pill sehingga tidak menutupi tombol aksi (play/minum/kirim) di kanan.
+> - **Peluncur Dock hidup:** badge menit Pomodoro yang sedang berjalan (berdenyut) dan jumlah tugas P1 yang belum selesai, juga saat widgetnya disembunyikan. Pill S Pomodoro/Water punya garis progres tipis di bawahnya.
+>
+> - **Tombol fungsi di Dynamic Island:** F1-F12 dan tombol media (Play/Pause, Next, Previous, Stop) muncul sebagai toast OSD 265x40 (cincin ungu berisi nama tombol + arti standar Windows, mis. `F5 · Muat Ulang`, `Alt+F4 · Tutup Jendela`). Dibaca backend (`osd://fkey`), hanya nama tombol-tombol itu yang diperiksa dan tidak ada yang disimpan; matikan dengan `KARSA_FKEY_OSD=false`.
+> - **Widget Notebook (ungu, Alt+7):** gaya NotebookLM. Tab **Sumber** (tarik file PDF/DOCX/PPTX/TXT/MD/CSV/XLSX atau tempel teks), **Tanya** (jawaban hanya dari sumber dengan sitasi `[n]` yang bisa dibuka kutipannya), **Studio** (Briefing, Panduan Belajar, Draf IMRaD + ekspor `.docx`, dan Pembersih Dataset: pratinjau, lalu simpan sebagai file `_clean` baru). Menjatuhkan file riset di Notch menambahkannya ke notebook aktif. Tanpa API key, semua keluaran memakai mode ekstraktif (cuplikan asli sumber, bukan karangan).
+> Bagian 3-5 di bawah (geometri island 430px dan 6 slide) adalah rancangan v2 dan **sudah digantikan** oleh arsitektur di atas.
 
-## 1. Visi Desain & Konsep "Desktop Island Companion"
+## 1. PERAN & PRINSIP UTAMA DESAIN (GOLDEN UI RULES)
+Antarmuka desktop lintas platform dibangun dengan **Tauri v2 + React + TypeScript + Tailwind CSS + Framer Motion** (komponen gaya Shadcn) dan responsif sebagai **Progressive Web App (PWA)** di ponsel.
 
-Karsa tidak hadir sebagai jendela aplikasi biasa yang kaku atau membosankan. Karsa adalah **sahabat digital di tepi atas layar (*Top-Edge Notch / Desktop Island Companion*)** yang hidup, ramah, ekspresif, dan selalu siap membantu kehidupan serta tugas mahasiswa tanpa mengganggu alur kerja (*never steals focus*).
-
-### Pilar Antarmuka:
-1. **Unobtrusive & Always Available:** Menempel anggun di tepi atas layar (*center-top*) seperti pulau dinamis (*Dynamic Island*). Saat diam, ia mengecil atau tidur (*Zero-Heat Sleep*). Saat kursor mendekat atau ada aktivitas, ia mengintip (*peek*) dan merespons.
-2. **Procedural Canvas Mascot (Living Squircle):** Karakter maskot berwujud *soft squircle* yang digambar murni di atas HTML5 Canvas 2D dengan fisika pegas (*spring dynamics*), pelacakan mata 3D mengikuti kursor mouse, animasi ekspresi emosi prosedural, dan reaksi interaktif ketika disentuh (*squish*, *dizzy*, *mouth swallow*).
-3. **Interactive Wardrobe Studio & Draw Pad:** Pengguna dapat mengganti warna tubuh/mata maskot, serta **menggambar aksesoris sendiri** (topi, pita, kacamata) di kanvas mini built-in. Aksesoris tersebut secara dinamis menempel pada titik jangkar (*anchor point*) kepala/tubuh maskot dan ikut membal serta miring mengikuti gerakan maskot.
-4. **Seamless Task & File Swallow:** Pengguna cukup melempar (*drag-and-drop*) file tugas `.pdf`, dataset `.csv`, atau foto struk belanja langsung ke mulut maskot di notch untuk memprosesnya secara instan.
-5. **Human-in-the-Loop Approval Pill:** Kartu persetujuan tindakan berisiko tinggi (Allow / Edit / Deny) muncul langsung sebagai ekstensi pulau (*island expansion*) dengan status visual yang jelas.
-
----
-
-## 2. Desktop Shell: Tauri v2 Window Architecture
-
-Jendela desktop Karsa dibangun di atas Tauri v2 dengan konfigurasi khusus jendela sistem operasi (Windows, macOS, Linux):
-
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                        Top of Screen (0, y)                            │
-│                  ┌──────────────────────────────────┐                  │
-│                  │  [ ●  ● ]  KARSA DESKTOP ISLAND  │                  │
-│                  └──────────────────────────────────┘                  │
-│                                                                        │
-│                      Area Kerja Pengguna (VS Code,                     │
-│                      Browser Jurnal, PDF Reader, dll)                  │
-│                                                                        │
-└────────────────────────────────────────────────────────────────────────┘
-```
-
-### 2.1 Konfigurasi Native Window (`src-tauri/tauri.conf.json`)
-* **`decorations`:** `false` (borderless).
-* **`transparent`:** `true` (latar belakang tembus pandang, hanya notch dan bayangannya yang dirender).
-* **`alwaysOnTop`:** `true` (tetap berada di atas jendela kerja pengguna).
-* **`visibleOnAllWorkspaces`:** `true` (muncul di seluruh virtual desktop / spaces).
-* **`skipTaskbar`:** `true` (tidak memenuhi taskbar; ada tray icon kecil di system tray).
-* **`acceptsFirstMouse`:** `true` (langsung merespons klik pertama tanpa perlu aktivasi jendela).
-* **Focus Policy (`Never Steals Focus`):**
-  * Di Windows: Menggunakan window styles Win32 `WS_EX_NOACTIVATE` saat dalam mode *Peeking* atau *Floating Mascot* agar ketikan pengguna di VS Code atau terminal tidak terputus saat mouse menyenggol notch.
-  * Hanya meminta fokus saat pengguna secara eksplisit mengklik kotak input chat di panel *Expanded Island*.
-
-### 2.2 Mode Tampilan: Top-Edge Notch vs Floating Mascot
-Pengguna dapat memilih dua mode penempatan:
-1. **Docked Notch (Default):** Mengunci di koordinat $(X_{\text{center}}, 0)$ di tepi atas layar utama.
-2. **Detached Floating Companion:** Maskot dapat ditarik (*dragged out*) dari notch ke area mana pun di desktop sebagai teman kecil mengambang berukuran 120 pt, dan dapat dikembalikan ke tepi atas cukup dengan menyeretnya mendekati batas atas layar (*magnet snap*).
+Patuhi **5 Hukum Mutlak Desain Desktop Karsa** di seluruh komponen:
+1. **100% NON-BLOCKING DESKTOP (DILARANG MENUTUPI/MEM-BLUR LAYAR KERJA):**
+   - Karsa adalah asisten pendamping kerja harian (*daily driver*), BUKAN halaman web layar penuh.
+   - **DILARANG** membuat lapisan `<div className="fixed inset-0 bg-black/... backdrop-blur-...">` yang mengunci atau memburamkan layar.
+   - `html`, `body`, dan `#root` wajib `background: transparent !important;`; wrapper terluar wajib `pointer-events-none`.
+   - `pointer-events-auto` HANYA dipasang pada kontainer *Dynamic Island* dan kartu *Floating Widget* yang aktif, sehingga sisa desktop 100% tembus pandang dan tembus klik (*click-through*).
+2. **COMPACT PROPORTIONS (GAYA NOTCHNOOK / NUSA / COUCOU):**
+   - Jangan membuat jendela raksasa. Gunakan ukuran mikro yang ramping dan proporsional terhadap resolusi serta DPI monitor (`clamp()`).
+   - Semua detail panjang (chat, pengaturan model/API, kanvas aksesoris, laporan riset) dibuka sebagai **Compact Draggable Floating Widget** yang bisa digeser ke sudut layar mana pun.
+3. **UNIFIED HIGH-LUMINANCE LIQUID GLASS (TIDAK PUCAT & TIDAK BELANG):**
+   - Semua komponen (`NotchShell`, `ChatWidget`, `SettingsWidget`, `WardrobeWidget`, `SystemToastPill`) membaca satu state tema global (`SystemContext`: `light` | `dark` | `system`).
+   - Dilarang satu jendela putih sementara jendela lain abu-abu kusam atau hitam sendiri.
+4. **WCAG AAA HIGH CONTRAST & NO CLIPPING:**
+   - Dilarang teks putih/abu-abu muda di atas latar terang.
+   - Dilarang tombol atau header terpotong (*clipping*). Gunakan grid lega dan `flex-wrap`.
+5. **ZERO DUMMY DATA & DEFENSIVE UI:**
+   - Dilarang saldo palsu, tugas bohongan, atau lagu palsu. Semua terhubung ke SQLite lokal dan API OS asli dengan *safe fallback* (mis. `(data?.hourly_logs ?? []).slice(0, 6)`) dan dibungkus `<ErrorBoundary>`.
 
 ---
 
-## 3. Finite State Machine (FSM) Antarmuka Notch
+## 2. SISTEM TIPOGRAFI, PALET WARNA, & MATERIAL LIQUID GLASS
 
-Notch Karsa beroperasi menggunakan State Machine terkontrol:
+### 2.1 Pasangan Tipografi (Google Fonts)
+Impor dan kunci di `tailwind.config` serta CSS global:
+- **`font-sans` — UI, Judul, Narasi:** **Poppins** (400, 500, 600, 700). Gunakan `font-semibold tracking-tight` untuk judul slide, tombol, dan label.
+- **`font-mono` — Angka, Jam, Timer, IDR, Token, Direktif `@`:** **JetBrains Mono** (500, 600, 700). Wajib pada jam header, hitung mundur Pomodoro (`25:00`), nominal IDR, metrik token, persentase baterai/volume, dan lencana `@Money` s.d. `@Screen`.
 
-```text
- ┌──────────────┐     Hover mendekati tepi atas     ┌──────────────┐
- │ HIDDEN/SLEEP ├──────────────────────────────────►│     PEEK     │
- └──────┬───────┘                                   └──────┬───────┘
-        │                                                  │
-        │ Event approval_required                          │ Klik / Drag file
-        │ atau ada streaming agen                          │
-        ▼                                                  ▼
- ┌─────────────────────────────────────────────────────────────────┐
- │                         EXPANDED_ISLAND                         │
- │  - Panel Chat & Token Energy Bar                                │
- │  - HitlApprovalPill (Allow / Edit / Deny)                       │
- │  - Mulut Maskot Terbuka (Drag-and-Drop File Swallow)            │
- │  - Tombol ScreenAssist & Status Modul Aktif                     │
- └─────────────────────────────────────────────────────────────────┘
-```
+### 2.2 Token Material: macOS Ceramic & Obsidian Liquid Glass
+Jangan gunakan transparansi rendah (`bg-white/40`) yang menjadi abu-abu keruh di atas wallpaper gelap.
 
-### Rincian State Notch (Dynamic Island V3 — Bezel-Blended Island):
-| State | Dimensi | Perilaku & Tampilan |
-| :--- | :--- | :--- |
-| `Mode 1: Bezel Notch Idle` | `clamp(180px, 14vw, 240px) × 34px` | Menempel pada bezel fisik atas dengan lengkungan sayap terbalik (*concave reverse-curve ears*). Menampilkan mata AI oval bercahaya atau mini-status (cincin progres hijau, jam digital `07:47`, dan bar equalizer audio `|||||`). |
-| `Mode 2: Bezel Island Expanded Deck` | `clamp(440px, 34vw, 680px) × clamp(120px, 14vh, 220px)` | Pulau meluas ke bawah dengan animasi pegas kenyal (*bouncy spring*). Menampung **6-Slide Interactive Deck** yang dapat digeser secara horizontal menggunakan tombol navigasi `<` dan `>`, swipe gesture, atau pintasan keyboard. |
-| `Mode 3: Split View / Lyrics Overlay` | `clamp(580px, 46vw, 840px) × 180px` | Memperluas pulau secara horizontal dengan layout split 2 kolom: sisi kiri pemutar media / kontrol, sisi kanan lirik tersinkronisasi (*live scrollable synced lyrics*) dengan baris aktif yang disorot tebal. |
-| `Mode 4: Omni-Bar & Search` | `clamp(460px, 36vw, 700px) × 52px` | Bar input pencarian instan aplikasi Windows + auto-suggest direktif `@` (`@Money`, `@Search`, `@Todo`, `@Study`, `@Write`, `@Data`, `@Screen`). |
-| `Mode 5: Hardware OSD Pill` | `clamp(220px, 18vw, 320px) × 42px` | Muncul sesaat (1.5 detik) saat tombol hardware ditekan (Volume, Brightness, CapsLock, Mute, Baterai) menggantikan OSD bawaan Windows yang kaku. |
+#### A. Light Glass Mode
+- **Surface Utama (Notch & Floating Widgets):**
+  ```css
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.90) 100%);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 14px 36px -6px rgba(15, 23, 42, 0.12), inset 0 1px 1px rgba(255, 255, 255, 1);
+  color: #0F172A;
+  ```
+- **Elemen Dalam (Input, Chip `@Directive`, Kartu Sekunder):** `bg-slate-100/85 hover:bg-slate-200/80 border border-slate-200/90 text-slate-900 placeholder:text-slate-400`
+- **Teks Utama & Angka Timer:** `#0F172A` · **Teks Sekunder:** `#475569`
 
----
+#### B. Dark Glass Mode
+- **Surface Utama:**
+  ```css
+  background: linear-gradient(145deg, rgba(20, 20, 25, 0.92) 0%, rgba(12, 12, 16, 0.88) 100%);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 18px 44px -8px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  color: #F8FAFC;
+  ```
+- **Elemen Dalam:** `bg-white/[0.07] hover:bg-white/[0.14] border border-white/10 text-zinc-100 placeholder:text-zinc-500`
+- **Teks Utama & Angka Timer:** `#F8FAFC` · **Teks Sekunder:** `#94A3B8`
 
-## 3.1 Bezel-Blended Geometry & Adaptive Screen Scaling
+### 2.3 Aksen Gradasi Segar
+- **Chip `@Directive` monokrom:** `@Money`, `@Search`, `@Todo`, `@Study`, `@Write`, `@Data`, `@Code`, `@Screen` memakai kapsul kaca netral seragam (`rounded-full px-2.5 py-1 font-mono text-[11px] font-medium transition-all active:scale-95`) dengan ikon kecil yang bersih. Tanpa warna pelangi.
+- **Warm Sunrise (Play/Action, Highlight, Progress utama):** `bg-gradient-to-r from-[#FF9A8B] via-[#FF6A88] to-[#6366F1] text-white shadow-sm`
+- **Fresh Emerald (Tasks & Budget):** `bg-gradient-to-r from-[#059669] via-[#10B981] to-[#34D399]`
+- **Sky Aqua (Water Reminder):** `bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8]`
 
-### 1. Bezel-Blended "Concave Wings" Geometry
-Desain fisik Dynamic Island Karsa V3 menyatu secara organik dengan bezel layar laptop:
-* **Concave Reverse-Curve Ears:** Sudut atas kiri dan kanan tidak lagi berbelok siku ke bawah, melainkan memiliki sayap kurva cekung terbalik (radius 14px–20px) yang membaurkan badan pulau hitam OLED `#000000` langsung ke garis bezel fisik atas monitor.
-* **Ambient Backlight Gradient:** Pada mode aktif, terdapat pendaran gradien radial lembut (biru-ungu tua `rgba(59, 130, 246, 0.25)` hingga `rgba(147, 51, 234, 0.20)`) di bagian latar belakang pulau, memberikan kesan kedalaman optik yang futuristis namun elegan.
-
-```text
-       ═══════════════════════ BEZEL LAPTOP ATAS ═══════════════════════
-       ─────────╮                                             ╭─────────
-       (Sayap   │                                             │  (Sayap
-        Cekung) ╰─────────────┬─────────────────┬─────────────╯   Cekung)
-                              │  [ ●         ● ]│
-                              │     Glowing     │
-                              │     AI Eyes     │
-                              ╰─────────────────╯
-```
-
-### 2. Adaptive Screen Scaling (Resolution-Agnostic)
-* Menggunakan fungsi CSS `clamp()` dan kalkulasi rasio viewport berbasis DPI layar:
-  - Lebar: `clamp(440px, 32vw, 680px)`
-  - Tinggi deck: `clamp(130px, 15vh, 220px)`
-  - Border radius dasar: `clamp(20px, 2.5vw, 32px)`
-* Di Windows/Tauri: Mengambil resolusi layar aktif melalui `window.screen.availWidth` dan skala DPI monitor sehingga pulau tetap proporsional baik di layar 13" FHD (1080p), 15" QHD (1440p), maupun 4K High-DPI Display.
+### 2.4 Tombol Kontrol Jendela (`Pin 📌`, `Minimize —`, `Delete 🗑️`, `Close ×`)
+- Ukuran: `w-6 h-6 rounded-full flex items-center justify-center transition-all cursor-pointer`
+- Light: `bg-slate-200/85 hover:bg-slate-300 text-slate-800` (Close hover: `hover:bg-rose-500 hover:text-white`)
+- Dark: `bg-white/10 hover:bg-white/20 text-zinc-100` (Close hover: `hover:bg-rose-500 hover:text-white`)
+- Ikon Lucide: `strokeWidth={2.25}`, ukuran `w-3.5 h-3.5`.
 
 ---
 
-## 3.2 Windows Hardware OSD Interceptor (Sub-system Flyout)
+## 3. GEOMETRI DYNAMIC ISLAND & SEAMLESS S-CURVE BEZEL EARS (`NotchShell.tsx`)
 
-Karsa V3 mengintegrasikan modul penangkap event hardware sistem operasi tingkat rendah (*Low-Level Keyboard & Multimedia Event Listener*) guna menggantikan tampilan OSD default Windows yang kaku dan mengganggu:
+### 3.1 Telinga Lengkung Menyatu (Seamless S-Curve Shoulders)
+- Pulau menempel di tengah atas layar (`top: 0`, `left: 50%`, `transform: translateX(-50%)`).
+- Bahu *concave S-curve ears* (`16px × 16px`) **DILARANG** berwarna hitam statis terpisah dan dilarang memiliki `border-left` / `border-right` pemisah.
+- Render ears dengan variabel latar `--island-surface` yang 100% identik dengan bodi tengah (atau satu path SVG / mask terpadu) sehingga pulau mengalir mulus dari bingkai atas layar.
 
-1. **Event yang Diintersepsi:**
-   - **Tombol Volume (`VK_VOLUME_UP`, `VK_VOLUME_DOWN`, `VK_VOLUME_MUTE` / F1-F3):** Menampilkan slider bar volume taktil dengan ikon dinamis (Mute / Rendah / Sedang / Maksimal) dan persentase angka.
-   - **Tombol Kecerahan Layar (`F4`–`F5`):** Slider pencerahan layar dari 0% hingga 100%.
-   - **Indikator Lock Keys (`CapsLock`, `NumLock`):** Badge status mini `"CAPS LOCK ON"` / `"NUM LOCK ON"` dengan aksen amber/hijau.
-   - **Playback Media (`VK_MEDIA_PLAY_PAUSE`, `VK_MEDIA_NEXT_TRACK`, `VK_MEDIA_PREV_TRACK`):** Animasi play/pause instan dan ringkasan judul lagu.
-   - **Status Baterai & Daya:** Peringatan status charger dicolok (*Charging*) / dilepas (*On Battery*) dan persentase daya.
-   - **Perangkat Bluetooth Audio:** Notifikasi halus saat earphone/TWS terhubung atau terputus.
-2. **Perilaku Tampilan OSD:**
-   - Pulau secara otomatis membesar lembut ke ukuran `Mode 5: Hardware OSD Pill` selama 1.5 detik, lalu mengecil kembali secara elastis ke mode Idle/Slide aktif.
-
----
-
-## 3.3 Built-in Windows App Search & `@Directive` Omni-Bar
-
-Pulau dilengkapi Omni-Bar multifungsi yang diakses dengan menekan `Ctrl + Spasi` atau mengklik area pencarian di pulau:
-
-1. **Pencarian Aplikasi Lokal Windows (App Launcher):**
-   - Mengindeks folder Start Menu Windows (`C:\ProgramData\Microsoft\Windows\Start Menu\Programs` dan `%AppData%\Microsoft\Windows\Start Menu\Programs`) secara deterministik di latar belakang.
-   - Mengetik `"code"` langsung memunculkan *Visual Studio Code*, `"calc"` memunculkan *Kalkulator*, `"spotify"` membuka *Spotify*. Menekan `Enter` langsung meluncurkan aplikasi via sub-proses OS.
-2. **Eksekusi Cepat Direktif `@` Mahasiswa (0-Token Instant Action):**
-   - `@Money [nominal]`: Mencatat pengeluaran kilat ke SQLite tanpa buka menu keuangan.
-   - `@Todo [judul]`: Menambahkan tugas baru otomatis dihitung ke Eisenhower Matrix.
-   - `@Study [file]`: Memulai ekstraksi 3-struktur materi kuliah.
-   - `@Search [topik]`: Menjalankan query paper jurnal di arXiv dan Crossref.
-   - `@Write [topik]`: Menghasilkan draf riset IMRaD dan kompilasi `.docx`.
-   - `@Data [file.csv]`: Menjalankan profiling lokal dataset tanpa membuang token.
-   - `@Screen`: Mengambil konteks layar aktif untuk tanya-jawab cepat.
+### 3.2 Empat State Ukuran Adaptif
+Transisi pegas: `transition={{ type: "spring", stiffness: 400, damping: 30, mass: 0.8 }}`.
+1. **Idle / Compact Pill (`155px × 32px`):** dua mata kapsul Karsa berkedip halus, atau cincin hijau di kiri + jam digital (`HH:mm`, JetBrains Mono) di tengah + 4 batang gelombang audio di kanan.
+2. **Peek Hover (`220px × 40px`):** membal saat kursor mendekati tepi atas; sapaan singkat maskot dan sisa *Daily Safe Spend* hari ini.
+3. **Hardware OSD Toast (`265px × 40px`, `rounded-full`):** menggantikan pop-up bawaan Windows untuk `F1`–`F12` (Volume, Mute, Brightness), `CapsLock`, `NumLock`, Battery Charger, Bluetooth Audio. Kiri: cincin ikon berwarna (hijau Battery/CapsLock, biru Volume/Bluetooth, amber Brightness). Tengah: nama status (`Poppins text-xs font-semibold`). Kanan: persentase (`JetBrains Mono text-xs font-bold`). Menyusut kembali setelah 1,8 detik.
+4. **Expanded Interactive Island (`width: 430px`, `min-height: 165px`, `height: auto`, `padding: 12px 16px`):** tiga baris (`Header 28px`, `Body 1fr`, `Footer Pagination 22px`) tanpa tumpang tindih. Mendukung *swipe/drag* horizontal (`drag="x"`), *wheel scroll* horizontal, dan tombol panah bulat `<` `>` di kiri-kanan bawah.
 
 ---
 
-## 3.4 The 6-Slide Interactive Deck (Carousel Architecture)
+## 4. DESAIN MASKOT KARSA (MINIMALIST COUCOU MOCHI) & WARDROBE STUDIO
 
-Pulau mengadopsi antarmuka **6-Slide Deck** yang intuitif. Mahasiswa dapat berpindah antar-slide menggunakan tombol panah `<` dan `>`, swipe gesture, atau klik pada pagination dots di bagian bawah kartu:
+### 4.1 Karakter Mochi Bersih (`MascotCanvas.tsx`)
+Tanpa partikel bintik merah/debu kasar. Digambar bersih di HTML5 Canvas 2D:
+- **Tubuh:** *Pillowy Squircle* (`46px × 38px` di dalam Notch), gradien putih mutiara (`#FFFFFF` → `#F1F5F9`), highlight tipis di tepi atas, bayangan elips lembut di bawah.
+- **Wajah & Mata:** default dua garis lengkung gembira (`⌒   ⌒`) atau dua mata oval hitam mengkilap yang melirik mengikuti kursor dengan inersia pegas. Pipi merona pastel (*soft blush* opasitas 18%).
+- **Tangan Bulat Melayang (*Floating Paws*):** dua bola `10px` di kiri-kanan tubuh, terhubung elastis. Ekspresi kontekstual: melambai saat kursor mendekat, memegang koin (`@Money`), kaca pembesar (`@Search`/`@Screen`), stopwatch (Pomodoro berjalan), mengetik (`@Code`), dan merapatkan tangan di bawah pipi (`Zzz`) saat **Zero-Heat Sleep Mode** (0 FPS; CPU/GPU 0%).
+- **Mini Companion Badge:** di slide selain Home, avatar mini Karsa (`24px`) di header bereaksi sesuai slide aktif.
 
-```text
- ┌────────────────────────────────────────────────────────────────────────┐
- │ [ < ]  Pomodoro           (🟢) Fri 23 Oct 2026 07:48            |||||  │
- │                                                                        │
- │       ┌───────┐                       25:00                   (↻)      │
- │       │  (⏱)  │                     Focus time                         │
- │       └───────┘                                                        │
- │                                                                  [ > ] │
- │                   [☕ Short Break]   [ ▶ ]   [🎯 Focus Time]            │
- │                                                                        │
- │                                 ● ━━ ○ ○ ○ ○                           │
- └────────────────────────────────────────────────────────────────────────┘
-```
-
-### Rincian 6 Slide Interaktif:
-
-#### 1. Slide 1 — AI Eyes/Hands & Omni-Bar (Mascot Companion)
-* Menampilkan sepasang mata AI putih oval bercahaya yang melacak kursor secara 3D di atas kanvas mochi squircle.
-* Sepasang tangan mengambang (*floating paws*) berbasis pegas yang menunjuk dan memegang ikon konteks.
-* Omni-bar pencarian aplikasi dan direktif `@`.
-
-#### 2. Slide 2 — Media Player & Live Lyrics Split View
-* **Left Pane:** Cover album/vinyl disc yang berputar halus saat musik aktif, judul lagu (*"Paper Sky - Lumen Coast"*), timeline progress bar interaktif dengan durasi waktu berjalan (`03:13`) dan sisa waktu (`-01:03`), tombol kontrol media (*Prev, Play/Pause, Next*).
-* **Right Pane (Split View):** Tampilan lirik lagu real-time yang bergulir otomatis (*live scrollable synced lyrics*) dengan baris aktif yang disorot tebal dan baris lainnya ber-opacity lembut (lihat Gambar Referensi 5).
-* Ikon visualizer bar equalizer audio animasi `|||||` di pojok kanan atas.
-
-#### 3. Slide 3 — Pomodoro Focus Timer
-* Ring pengukur waktu berwarna coral red cerah dengan ikon stopwatch.
-* Tampilan digital countdown besar (format `MM:SS`, misal `25:00`) dengan status *"Focus time"*, *"Short Break"*, atau *"Long Break"*.
-* Tombol aksi taktil: `☕ Short Break (5m)`, tombol utama Play/Pause `▶`/`⏸`, dan `🎯 Focus Time (25m)`, serta tombol reset `↻`.
-* Setiap sesi fokus yang selesai secara deterministik disimpan ke tabel SQLite `focus_sessions` terhubung ke `tasks`.
-
-#### 4. Slide 4 — Water Reminder & Hourly Intake Bar Chart
-* Pelacak hidrasi harian untuk menjaga konsentrasi belajar mahasiswa.
-* Tampilan target harian (misal `1.250 / 2.000 ml` dengan persentase cincin progres hijau).
-* Tombol tambah kilat: `+200 ml (Gelas)`, `+500 ml (Botol)`.
-* **Hourly Intake Bar Chart (09:00 - 21:00):** Visualisasi histogram bar kecil per jam yang menunjukkan kapan saja mahasiswa minum air sepanjang hari, bersumber langsung dari tabel SQLite `hydration_logs`.
-
-#### 5. Slide 5 — File Drop Shelf (Desktop Staging Dock)
-* Area rak file serbaguna di mana mahasiswa dapat men-drag file apa pun (`.pdf`, `.docx`, `.csv`, `.py`, foto struk) ke Dynamic Island.
-* File tersimpan rapi sebagai kartu miniatur dengan ikon tipe file, nama, dan ukuran, dicatat di tabel SQLite `shelf_files`.
-* Mahasiswa dapat mengklik untuk memicu pemrosesan Karsa (rangkum materi, analisis dataset, atau ocr) atau men-drag file keluar rak langsung ke jendela browser/WhatsApp Web/email tugas.
-
-#### 6. Slide 6 — TodoList Checklist (Eisenhower Matrix Quickview)
-* Daftar centang tugas kuliah to-do hari ini yang diurutkan berdasarkan kuadran Eisenhower (Q1 mendesak di posisi teratas).
-* Satu klik checkbox langsung menandai tugas selesai (`complete_task_in_db`) dan mencatat waktu penyelesaian di SQLite `tasks`.
-* Tombol pintas `+ Tambah Tugas` untuk input cepat.
+### 4.2 Kustomisasi Warna & Kanvas Aksesoris (`WardrobeWidget.tsx`)
+- Compact Draggable Widget (`330px`) bertema Liquid Glass seragam.
+- **Tab 1 (Warna & Energi):** warna tubuh dan mata maskot, serta **Token Energy Bar** (persentase kuota token harian/bulanan dan estimasi biaya IDR dari `token_logs`).
+- **Tab 2 (Kanvas Aksesoris):** *Drawing Pad* (`200px × 160px`; kuas halus, ketebalan, *color picker*, penghapus, *undo*, tombol *Simpan ke Kepala Maskot*) untuk topi, kacamata, atau pita; disimpan sebagai PNG transparan di SQLite (`wardrobe_items`).
 
 ---
 
-## 4. Interactive Procedural Canvas 2D Mascot Engine
+## 5. SPESIFIKASI 6 SLIDE INTERAKTIF DI DALAM NOTCH
+Semua slide dalam Expanded Island (`430px`) rapi, lega, dan bebas komponen terpotong.
 
-Maskot Karsa dirender secara prosedural murni menggunakan **HTML5 Canvas 2D Context** (`<canvas>`), menghasilkan animasi yang sangat ringan, tajam di layar Retina/HiDPI, dan bebas dependensi aset bitmap berat.
-
-### 4.1 Geometri Tubuh: The Soft Squircle
-Bentuk dasar tubuh maskot adalah *superellipse / squircle* dengan rumus Bézier dinamis yang mendukung deformasi fisika pegas:
-$$x(t) = r \cdot \text{sgn}(\cos t) |\cos t|^{2/n}, \quad y(t) = r \cdot \text{sgn}(\sin t) |\sin t|^{2/n}$$
-* **Deformasi Fisika:**
-  * Saat diklik: Tubuh membal memipih vertikal (*squish factor* $0.7 \times$ tinggi, $1.3 \times$ lebar) lalu kembali bergetar (*elastic bounce*).
-  * Saat kursor bergerak cepat di atasnya: Tubuh sedikit miring (*lean*) ke arah gerakan mouse.
-
-### 4.2 Sistem Mata: 3D Spherical Eye Projection
-* Mata maskot terdiri dari kornea luar (putih lembut) dan pupil/iris dalam (warna dinamis).
-* **Pelacakan Kursor 3D:** Koordinat mouse $(m_x, m_y)$ dinormalisasi terhadap pusat kepala maskot. Posisi pupil diproyeksikan seolah-olah berada di permukaan bola virtual 3D dengan batas kelengkungan (*clamped radius*), menciptakan ilusi tatapan mata tiga dimensi yang hidup.
-* **Kedipan Alami (Blink Cycle):** Interval acak antara 2.5 hingga 6 detik. Saat berkedip, tinggi pupil mengecil menjadi 0 selama 120 ms lalu membuka kembali.
-
-### 4.3 Reaksi Interaktif & Emosi
-1. **Poked & Annoyed:** Mengklik maskot sekali membuatnya tersentak ramah.
-2. **Dizzy / Pusing:** Mengklik cepat $\ge 3\times$ dalam 1 detik membuat mata maskot berputar spiral (*dizzy spirals*) dan bergoyang selama 3 detik sebelum kembali normal.
-3. **File Swallow (Mulut Terbuka):** Saat event drag-over file terdeteksi, mata menyipit senang dan mulut terbuka berbentuk oval gelap dengan partikel hisap. Ketika file di-drop, mulut menutup (*"Gulp!"*) disertai animasi perut mengembang sesaat.
-4. **Happy Jump:** Ketika sub-agen berhasil menyelesaikan tugas atau kompilasi Word/analisis dataset sukses, maskot melompat kecil dengan mata berbentuk lengkungan bahagia (`^ ^`).
+1. **Slide 1 — Karsa Home (`HomeSlide.tsx`):**
+   - **Kiri (`105px`):** panggung maskot + kapsul mungil `🎨 Wardrobe`.
+   - **Kanan (`1fr`):** input cepat (`h-8 rounded-full px-3 text-xs`, placeholder `"Ketik @Money, @Todo, @Search..."`, tombol kirim `→`) dan 8 chip direktif (`@Money`, `@Search`, `@Todo`, `@Study`, `@Write`, `@Data`, `@Code`, `@Screen`) dengan `flex flex-wrap gap-1.5` (4 per baris, `px-2.5 py-1 text-[11px] font-mono`) tanpa terpotong.
+2. **Slide 2 — OmniSearch & Windows App Launcher (`OmniSearchSlide.tsx`):** bar pencarian terpadu (`Alt + Space`). Nama aplikasi (`vscode`, `chrome`, `word`, `spotify`) → daftar aplikasi asli Start Menu dengan ikon; `Enter` membuka. Awalan `@` → autocomplete parameter direktif. Tombol `Scan # @...` di kanan atas memindai komentar `# @Search ...` / `// @Todo ...` pada workspace aktif.
+3. **Slide 3 — Pomodoro (`PomodoroSlide.tsx`):** kiri: cincin progres SVG dan hitung mundur (`25:00`, JetBrains Mono `text-3xl font-bold`). Klik angka atau `⚙️` untuk mengatur *Focus* (`15/25/45/60`), *Short Break* (`5/10`), *Long Break* (`15/30`) plus `-5m` / `+5m`. Toggle suara `🔔/🔕`; pada `00:00` bunyikan chime Web Audio, tampilkan OS Desktop Notification, simpan sesi ke `focus_sessions`.
+4. **Slide 4 — Water Reminder (`HydrationSlide.tsx`):** kiri: `0.0 / 2.0 L` (`text-2xl font-bold`), progress *Sky Aqua*, tombol `+ Drink (250ml)` (INSERT ke SQLite), `⚙️ Settings`. Settings: toggle pengingat, interval (`1 Jam`, `1.5 Jam`, `2 Jam [Default]`, `3 Jam`), target harian (`1500`–`3000 ml`), ukuran gelas. Kanan: **6 batang kapsul vertikal** (`w-2.5 h-14 rounded-full bg-slate-200/80 dark:bg-white/10 overflow-hidden flex items-end`) untuk jam `08, 11, 14, 17, 20, 22`, tinggi proporsional dari SQLite.
+5. **Slide 5 — Media Player & Live Lyrics (`MediaSlide.tsx`):** sampul, judul, artis, progress, kontrol dari sesi media OS (Windows GSMTC). Tanpa lagu: `"Tidak ada musik diputar"`. Progress bar memakai timeline OS asli (`position_s`/`duration_s`); tombol ⏮ ⏯ ⏭ memanggil `POST /api/v1/system/media/control` (`play_pause` | `next` | `previous`). Tombol `💬 Lirik` membuka split-view lirik tersinkron dari `https://lrclib.net/api/get` dengan baris aktif tersorot real-time.
+6. **Slide 6 — TodoList (P1–P4) & Smart File Shelf (`TodoSlide.tsx`):** dua tab: `Checklist Tugas` dan `File Shelf`. Checklist murni dari tabel `tasks`; `+ Tugas` memilih `🔴 P1 · Kritis`, `🟠 P2 · Penting`, `🔵 P3 · Normal`, `🟢 P4 · Santai`. File Shelf: dropzone garis putus-putus; foto struk → OCR `@Money`, PDF → `@Study`/`@Search`, CSV → `@Data`.
 
 ---
 
-## 5. Built-in Wardrobe Studio & Draw-Your-Own Accessory Pad
+## 6. COMPACT DRAGGABLE FLOATING WIDGETS (`width: 335px`)
+Berlaku untuk `ChatWidget`, `SettingsWidget`, `WardrobeWidget`, `HitlApprovalWidget`:
+1. **Ukuran & Posisi:** lebar `335px`, tinggi maks `390px` (`overflow-y-auto`), `rounded-2xl`, muncul di bawah/samping Notch tanpa mem-blur desktop.
+2. **Draggable:** `<motion.div drag dragControls={dragControls} dragListener={false} dragMomentum={false}>`; drag lewat bar judul.
+3. **Header:** ikon + judul (`Poppins text-xs font-semibold`), badge status koneksi AI yang sinkron, tombol **Pin**, **Minimize ke pill mungil**, **Close**.
 
-Karsa menyediakan fitur personalisasi penuh bagi mahasiswa melalui panel **Wardrobe Studio** yang terintegrasi di dalam Notch.
+### 6.1 `SettingsWidget.tsx`
+- Tanpa placeholder titik-titik (`••••••••`). Placeholder jujur: `"Tempel Gemini API Key (AIzaSy...)"`.
+- Tombol **`Simpan & Hubungkan`** di samping input (dengan tombol mata Show/Hide): simpan ke `system_settings` via `POST /api/settings/keys`, jalankan *live ping test* ke Gemini / DeepSeek / Ollama, lalu perbarui badge global Settings dan Chat serentak menjadi **`🟢 Gemini Active`** (atau tampilkan error asli).
+- **3 Tab:** `Models & API` (RAM/VRAM asli, `Turbo GPU` vs `Eco CPU`, Auto-Routing: harian/keuangan → Gemini Flash; riset/coding → DeepSeek / Gemini Pro, statistik token & biaya IDR), `Modules` (toggle 5 modul), `Appearance` (`Light Glass`, `Dark Glass`, `System`, ukuran Notch, timer Auto-Sleep).
 
-### 5.1 Color Customizer
-* **Body Hue/Hex:** Memilih warna tubuh maskot (default: *cute pastel blue / mint / lilac / coral*).
-* **Eye Color:** Memilih warna mata/pupil.
-* **Notch Aura / Background Particles:** Mengatur efek partikel di belakang maskot (mis. *bintang malam berbintang*, *kelopak sakura*, atau *matrix code green* minimalis).
-
-### 5.2 Draw-Your-Own Accessory Pad (Studio Gambar Mini)
-Pengguna tidak perlu mencari mod atau aset eksternal; mereka dapat menggambar aksesoris mereka sendiri langsung di dalam aplikasi!
-
-```text
-┌────────────────────────────────────────────────────────┐
-│                   WARDROBE STUDIO                      │
-│ ┌───────────────────────────┐  Tools:                  │
-│ │                           │  [Pen] [Eraser] [Undo]   │
-│ │     Koleksi Aksesoris     │  Color: [ ■ #FF5577 ]    │
-│ │     [Topi Wisuda] [Pita]  │  Size:  [───●────] 3px   │
-│ │     [+ Gambar Baru]       │                          │
-│ └───────────────────────────┘                          │
-│ ┌────────────────────────────────────────────────────┐ │
-│ │                  DRAWING CANVAS                    │ │
-│ │  (Siluet panduan kepala maskot transparan 10%)     │ │
-│ │                                                    │ │
-│ │               .---.                                │ │
-│ │              /_____\   <-- Hasil goresan topi      │ │
-│ │             (_______)                               │ │
-│ │                                                    │ │
-│ └────────────────────────────────────────────────────┘ │
-│ [ Simpan ke Lemari Aksesoris ]    [ Hapus ]            │
-└────────────────────────────────────────────────────────┘
-```
-
-#### Alur Teknis Canvas Drawing Pad:
-1. **Dimensi Kanvas Gambar:** Kanvas berukuran $256 \times 256$ piksel dengan latar transparan (`transparent alpha`).
-2. **Panduan Visual (Ghost Template):** Menampilkan siluet samar kepala maskot (opacity 15%) sebagai acuan posisi agar pengguna tahu di mana letak atas kepala, mata, atau leher.
-3. **Drawing Tools:**
-   * Kuas halus anti-aliased dengan pengaturan ketebalan (1px s.d. 20px).
-   * Palet warna bebas (Color Picker HEX/RGB).
-   * Penghapus (*Eraser*) & Riwayat Undo/Redo (stack 20 langkah).
-4. **Penyimpanan Aksesoris (`wardrobe_items`):**
-   * Hasil gambar diekspor sebagai PNG Base64 atau file lokal di `~/.karsa/wardrobe/<item_id>.png`.
-   * Metadata disimpan ke tabel SQLite `wardrobe_items` dengan tipe anchor: `head_top` (topi/pita), `eyes` (kacamata), `neck` (dasi/syal), atau `side` (pin/bunga).
-5. **Dynamic Physics Attachment Rendering:**
-   * Saat maskot Canvas 2D digambar, layer aksesoris aktif dirender di atas tubuh maskot.
-   * Koordinat transformasi aksesoris dikalikan dengan matriks deformasi maskot: jika kepala maskot miring $5^\circ$ atau membal ke bawah saat diklik, aksesoris ikut miring dan membal secara presisi!
+### 6.2 `ChatWidget.tsx` & `HitlApprovalWidget.tsx`
+- **Chat:** bubble pengguna `bg-slate-900 text-white` (Light) dan `bg-white/15 text-zinc-100` (Dark). Mendukung tabel ringkas, kartu *Daily Safe Spend*, tombol unduh `.docx`.
+- **HITL:** muncul otomatis saat LangGraph `interrupt()` pada aksi berisiko tinggi (menimpa kode, menimpa `.docx`, mengubah modal bulanan, perintah terminal destruktif) dengan cuplikan perubahan (JetBrains Mono) dan tombol **`Izinkan (Enter)`**, **`Ubah (E)`**, **`Batal (Esc)`**.
 
 ---
 
-## 6. Zero-Heat Sleep Mode Architecture (Hemat Baterai & Suhu 0%)
-
-Salah satu masalah utama aplikasi asisten desktop adalah konsumsi CPU latar belakang yang membuat kipas laptop berputar dan baterai cepat habis. Karsa memecahkan masalah ini secara radikal dengan **Zero-Heat Sleep Mode**.
-
-### 6.1 Pemicu Mode Tidur (Sleep Triggers)
-1. **Inaktivitas:** Tidak ada pergerakan mouse atau request baru selama $N$ menit (default: 5 menit, dapat diatur).
-2. **Manual Toggle:** Pengguna mengklik tombol tidur / ikon bulan sabit di notch.
-3. **System Sleep / Screen Lock:** Deteksi event OS saat laptop mengunci layar atau sleep.
-
-### 6.2 Eksekusi Tiga Tahap Zero-Heat:
-```text
-           [Deteksi Inaktivitas / Tombol Tidur]
-                           │
-                           ▼
- ┌─────────────────────────────────────────────────────────┐
- │ 1. UI Layer: Hentikan requestAnimationFrame (0 FPS)     │
- │    - Canvas loop berhenti total                         │
- │    - Render 1 frame statis: Maskot tidur pulas ("Zzz")  │
- │    - Notch mengecil ke mode HIDDEN/SLEEP (6px)          │
- └─────────────────────────┬───────────────────────────────┘
-                           │
-                           ▼
- ┌─────────────────────────────────────────────────────────┐
- │ 2. Backend Gateway: Hentikan Poller & Watchers          │
- │    - Screen watcher / window context capture dihentikan │
- │    - SSE background keep-alive dibuat idle              │
- └─────────────────────────┬───────────────────────────────┘
-                           │
-                           ▼
- ┌─────────────────────────────────────────────────────────┐
- │ 3. Model Engine: Unload Model Lokal dari VRAM/RAM       │
- │    - Panggil Ollama API: {"model": "...", "keep_alive": 0}│
- │    - VRAM GPU dan memori RAM terbebas kembali 100%       │
- └─────────────────────────────────────────────────────────┘
-```
-
-* **Dampak:** Penggunaan CPU/GPU turun ke **0.0%**. Laptop tetap dingin, kipas hening, dan baterai tahan lama saat mahasiswa di kelas atau perpustakaan.
-* **Instant Wake-Up:** Begitu kursor mouse menyentuh area notch, sistem bangun kembali dalam $<100\text{ ms}$, me-restart loop Canvas, dan siap menerima instruksi.
-
----
-
-## 7. Human-in-the-Loop (HITL) Notch Approval Pill
-
-Saat sub-agen membutuhkan persetujuan manusia untuk aksi berisiko tinggi (menimpa kode, menulis dokumen Word, mengubah pagu modal, atau perintah terminal):
-
-1. **Notch Glow Effect:** Tepi island menyala oranye/amber lembut (*pulsing alert*).
-2. **Tampilan Pill:**
-   ```text
-   ┌─────────────────────────────────────────────────────────────────┐
-   │ ⚠️ APPROVAL REQUIRED: Timpa File 'analysis.py'?                 │
-   │ Diff: +12 baris, -4 baris (Pembersihan outlier & normalisasi)   │
-   │                                                                 │
-   │   [✓ Allow / Setujui]    [✎ Edit Argumen]    [✕ Deny / Tolak]   │
-   └─────────────────────────────────────────────────────────────────┘
-   ```
-3. Mengklik **Allow** mengirim payload `decision: "approve"` ke endpoint resume backend secara instan tanpa perlu berpindah jendela ke terminal atau browser.
-
----
-
-## 8. Ringkasan Komponen Frontend Desktop Companion
-
-| File Komponen | Peran Utama |
-| :--- | :--- |
-| `src/components/NotchIsland.tsx` | Kontainer utama top-notch overlay, manajemen state FSM, animasi spring Framer Motion (`stiffness: 420, damping: 32, mass: 0.8`), dan copywriting mahasiswa lugas. |
-| `src/components/MascotCanvas.tsx` | Loop rendering HTML5 Canvas 2D, celestial starry cosmic orbit, squircle physics, eye projection, smile idle `^ ^`, blush cheeks, sleep rendering 0 FPS, dan layer aksesoris. |
-| `src/components/WardrobeStudio.tsx`| Modal lemari pakaian: color picker bertema Warm Obsidian & Terracotta, daftar aksesoris, dan Kanvas Gambar mini $256 \times 256$ dengan undo/pen/eraser. |
-| `src/components/HitlApprovalPill.tsx` | Kartu persetujuan risiko tinggi (Badge solid Terracotta `#D95D39`, spring physics `-0.5deg`, proof box `JetBrains Mono`, dan shortcut keyboard `Enter`/`E`/`Esc`). |
-| `src/components/ScreenAssistBtn.tsx` | Tombol picu cepat untuk membaca layar/jendela aktif untuk konsultasi materi kuliah atau bug kode. |
-| `src/App.tsx` | Main wrapper aplikasi dengan film grain noise overlay (`opacity: 0.025`, `feTurbulence`) dan integrasi state. |
-
----
-
-## 9. Sistem Desain "Warm Editorial & Tactile Companion" (Anti-AI-Slop)
-
-### 9.1 Larangan AI-Slop vs Standar Karsa
-* **Latar Belakang:** Dilarang menggunakan biru-slate AI generik (`#0f172a`) dengan glow neon. Gunakan monokrom hangat: **Warm Paper (`#FAF9F6`)** & **Obsidian Charcoal (`#121212`)**, dipadukan aksen solid tegas **Terracotta (`#D95D39`)** atau **Sage (`#3B7A57`)**.
-* **Asimetri Terkontrol:** Angka *Daily Safe Spend* berukuran besar mendominasi kolom kiri menggunakan `Instrument Serif`, indeks berlabel `01 / 02`, dan pemisahan berbasis whitespace halus (`#121212` vs `#171615` vs `#1A1917`).
-* **3-Font Pairing:**
-  1. `Instrument Serif`: Heading & nominal editorial (`letter-spacing: -0.03em`, `line-height: 1.02`).
-  2. `Plus Jakarta Sans`: UI teks & tubuh percakapan utama.
-  3. `JetBrains Mono`: Angka token, data transaksi IDR, dan diff kode pada kartu HITL.
-* **Tekstur Film Grain & 3-Layer Tinted Shadows:**
-  - Latar diberi lapisan SVG `feTurbulence` (2.5% opacity) statis tanpa hambatan klik (`pointer-events: none`).
-  - Bayangan berlapis bertingkat: `--shadow-tactile-rest`, `--shadow-tactile-lifted`, dan `--shadow-tactile-notch`.
-* **Spring Physics & Micro-Rotations:**
-  - Transisi menggunakan `framer-motion` pegas (`stiffness: 420, damping: 32, mass: 0.8`).
-  - Kartu dan chip tombol aksi cepat memiliki rotasi mikro asimetris (`hover:-rotate-1`, `hover:rotate-1`) agar terasa taktil dan organik di atas meja belajar mahasiswa.
-
+## 7. INSTRUKSI EKSEKUSI & VERIFIKASI VISUAL
+1. Spesifikasi ini disimpan di `docs/05_UI_AND_COMPANION_ENGINE.md`.
+2. Terapkan token CSS Liquid Glass, font Poppins + JetBrains Mono, hapus fullscreen backdrop blur, satukan S-curve ears, maskot Mochi bersih, perbaiki 6 slide, dan widget draggable.
+3. Jalankan `npm run build` (0 error TypeScript/CSS), lalu catat pembaruan di `docs/00_PROJECT_MEMORY.md`.

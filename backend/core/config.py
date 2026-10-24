@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     hardware_override: str = "auto"  # "auto" | "turbo_gpu" | "eco_cpu"
     min_vram_gb: float = 6.0
     sleep_idle_minutes: int = 5
+    # Show F1-F12 and media-key presses in the Dynamic Island. Only the key NAME of those keys is read (never other keys).
+    fkey_osd: bool = True
+    # A pending human approval older than this is auto-rejected (reviewer timeout) and its thread is released.
+    hitl_timeout_minutes: int = 120
     ollama_base_url: str = "http://localhost:11434"
 
     # API Keys (optional depending on active cloud provider)
@@ -52,7 +56,7 @@ class Settings(BaseSettings):
     council_reasoner_provider: str = "ollama"         # "ollama" | "deepseek" (cloud API)
     council_synth_model: str = "gemini-3.8-flash"     # Gemini: final synthesis
 
-    # Model Defaults per Tier (Lightweight: Gemini 3.8 Flash & DeepSeek Flash)
+    # Model Defaults per Tier (Lightweight: Gemini 2.5 Flash & DeepSeek Flash)
     tier1_model: str = "gemini-3.8-flash"  # fallback or eco default
     tier1_local_model: str = "hermes3:8b"   # for turbo_gpu
     tier2_model: str = "deepseek-ai/deepseek-v4.1-flash-1017"

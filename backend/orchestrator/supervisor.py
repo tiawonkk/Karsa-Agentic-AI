@@ -6,6 +6,8 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from backend.core.config import settings
+from backend.core.council import run_council
 from backend.core.database import get_sqlite_checkpointer
 from backend.core.llm_router import router
 from backend.core.state import KarsaState, RouteDecision
@@ -16,6 +18,8 @@ import backend.modules  # Ensure all plugins are registered
 BUILTIN_INTENT_PATTERNS: dict[str, list[str]] = {
     "finance": [
         r"(?:beli|bayar|jajan|struk|pengeluaran|pemasukan|belanja|saldo|reksadana|deposito|bibit)",
+        r"(?:uang|duit|keuangan|anggaran|dana|dompet|kas)",
+        r"(?:uang\s*(?:saya|ku|skrg|sekarang|berapa)|cek\s*(?:keuangan|saldo|budget|duit|uang)|berapa\s*(?:uang|saldo|duit|kas))",
         r"\b\d+[\.,]?\d*\s*(?:rb|k|jt|ribu|juta|rupiah)\b",
         r"(?:rp\.?\s*\d+)",
         r"(?:daily safe spend|safe to spend)",
@@ -142,24 +146,33 @@ def supervisor_triage_node(state: KarsaState) -> dict[str, Any]:
     return {"active_module": None}
 
 
-def _general_llm_answer(prompt: str) -> str | None:
+def _general_llm_answer(prompt: str) -> str:
     """Answer a free-form question via the Hermes/DeepSeek/Gemini council.
 
-    Returns None when no model is reachable (no Gemini key and no local Ollama), so the
-    caller can fall back to a canned reply instead of failing.
+    Returns the AI answer or transparent error diagnostic instead of falling back to canned greetings.
     """
     if not prompt:
-        return None
-    from backend.core.config import settings
-    from backend.core.council import run_council
+        return "Halo! Ada yang bisa kubantu? Ketik pertanyaan atau tugasmu."
+    effective_key = settings.gemini_api_key
+    if not effective_key:
+        from backend.core.database import get_system_setting
+        effective_key = get_system_setting("api_key.gemini", "")
+        if effective_key:
+            settings.gemini_api_key = effective_key
 
-    if not settings.gemini_api_key and settings.hardware_override != "turbo_gpu":
-        return None
+    if not effective_key and settings.hardware_override != "turbo_gpu":
+        return (
+            "⚠️ Kunci API Gemini belum dipasang di Settings.\n"
+            "Silakan tambahkan `GEMINI_API_KEY` di menu Settings atau file `.env` untuk mengaktifkan obrolan AI."
+        )
     try:
         result = run_council(prompt, mode="auto")
-    except Exception:
-        return None
-    return result["answer"] if result.get("ok") else None
+        if result.get("ok") and result.get("answer"):
+            return result["answer"]
+        err_msg = result.get("error", "Model tidak merespons.")
+        return f"⚠️ Gagal memanggil AI: {err_msg}\nSilakan periksa koneksi internet atau kunci API di Settings."
+    except Exception as e:
+        return f"⚠️ Terjadi kesalahan saat memanggil AI: {str(e)}"
 
 
 def subagent_dispatch_node(state: KarsaState) -> dict[str, Any]:
@@ -196,9 +209,7 @@ def subagent_dispatch_node(state: KarsaState) -> dict[str, Any]:
                 "Ada yang bisa kubantu? Kamu bisa langsung ketik pengeluaran (*\"kopi 15rb\"*), tugas kuliah, atau minta draf paper riset!"
             )
         else:
-            response_text = _general_llm_answer(last_user_raw) or (
-                "Halo! Aku Karsa, asisten pribadimu. Ada tugas kuliah, catatan pengeluaran, riset paper, atau analisis data yang ingin kubantu? Ketik saja secara santai!"
-            )
+            response_text = _general_llm_answer(last_user_raw)
 
         return {"messages": [AIMessage(content=response_text)]}
 

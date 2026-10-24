@@ -149,3 +149,17 @@ def test_study_daily_subgraph_flow(tmp_path: Path, monkeypatch):
     res4 = graph.invoke({"messages": [HumanMessage(content="tugas 1 selesai")]})
     content4 = str(res4["messages"][-1].content)
     assert "berhasil ditandai selesai" in content4
+
+
+def test_extract_text_from_pptx(tmp_path: Path):
+    from pptx import Presentation
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Hukum Newton"
+    slide.placeholders[1].text = "F = m a"
+    f = tmp_path / "materi.pptx"
+    prs.save(str(f))
+
+    text = extract_text_from_file(f)
+    assert "[Slide 1]" in text
+    assert "Hukum Newton" in text and "F = m a" in text

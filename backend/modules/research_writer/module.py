@@ -11,7 +11,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from backend.core.state import KarsaState, ProposedAction
 from backend.modules.base_module import BaseKarsaModule, ModuleContext, ModuleManifest, registry
-from backend.orchestrator.hitl_gate import check_and_request_approval
+from backend.orchestrator.hitl_gate import check_and_request_approval, execute_approved, fingerprint_path
 from backend.modules.research_writer.research_tools import (
     search_and_cache_papers,
     extract_paper_parameters,
@@ -187,14 +187,16 @@ class WriterModule(BaseKarsaModule):
                 # If file exists, check HITL Gate for overwrite
                 overwrite = False
                 if out_path.exists():
-                    action_id = f"act_docx_{uuid.uuid4().hex[:8]}"
                     prop_action = ProposedAction(
-                        action_id=action_id,
+                        action_id=f"act_docx_{uuid.uuid4().hex[:8]}",  # replaced by a stable id inside the gate
                         module="writer",
                         action_name="compile_docx_overwrite",
                         target_path=str(out_path),
                         args={"output_filename": filename, "overwrite": True},
+                        editable_args=["output_filename"],
                         preview=f"Menimpa dokumen Word yang sudah ada: {filename}",
+                        reason="Dokumen dengan nama yang sama sudah ada di folder outputs.",
+                        impact="Isi file lama diganti dengan draf IMRaD baru; versi lama tidak bisa dikembalikan.",
                     )
                     thread_id = ctx.session_thread_id or state.get("session_thread_id") or "default_thread"
                     decision = check_and_request_approval(
@@ -202,17 +204,39 @@ class WriterModule(BaseKarsaModule):
                         session_thread_id=thread_id,
                         module_high_risk_actions=self.manifest.high_risk_actions,
                         db_path=ctx.settings.master_db_path,
+                        nonce=str(len(messages)),
                     )
-                    if not decision or decision.get("decision") != "approve":
+                    if not decision or decision.get("decision") not in ("approve", "edit"):
                         return {
                             "messages": [
                                 AIMessage(content=f"❌ Penulisan dokumen `{filename}` dibatalkan untuk mencegah penimpaan file yang tidak disengaja.")
                             ]
                         }
-                    overwrite = True
+                    # Edit: the reviewer may have chosen another file name; that one is what gets written.
+                    final_name = Path(str(decision["final_args"].get("output_filename") or filename)).name
+                    if not final_name.lower().endswith(".docx"):
+                        final_name += ".docx"
+                    out_path = out_dir / final_name
+                    filename = final_name
+                    overwrite = out_path.exists()
 
-                imrad_data = generate_imrad_template(topic)
-                res = compile_imrad_to_docx(imrad_data, out_path, overwrite=overwrite)
+                    imrad_data = generate_imrad_template(topic)
+                    outcome = execute_approved(
+                        decision["action_id"],
+                        lambda: compile_imrad_to_docx(imrad_data, out_path, overwrite=overwrite),
+                        current_fingerprint=fingerprint_path(Path(prop_action.target_path)),
+                        db_path=ctx.settings.master_db_path,
+                    )
+                    if not outcome["ran"]:
+                        why = {
+                            "stale": "file berubah sejak permintaan dibuat",
+                            "already_executed": "permintaan ini sudah dijalankan sebelumnya",
+                        }.get(outcome["reason"], outcome["error"] or outcome["reason"])
+                        return {"messages": [AIMessage(content=f"⚠️ Dokumen `{filename}` tidak ditulis: {why}.")]}
+                    res = outcome["result"]
+                else:
+                    imrad_data = generate_imrad_template(topic)
+                    res = compile_imrad_to_docx(imrad_data, out_path, overwrite=overwrite)
                 resp = (
                     f"✅ **Dokumen Microsoft Word (.docx) Berhasil Dikompilasi Secara Deterministik (0 Token LLM)!**\n\n"
                     f"📄 **Nama File:** `{res['file_name']}`\n"

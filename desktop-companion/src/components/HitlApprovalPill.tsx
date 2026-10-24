@@ -13,6 +13,17 @@ export interface PendingApprovalData {
     preview?: string;
     proposed_args?: Record<string, any>;
   };
+  /** Evidence shown on the approval card (filled by the backend gate) */
+  evidence?: {
+    operation?: string;
+    target?: string | null;
+    environment?: string;
+    impact?: string | null;
+    reason?: string | null;
+    args?: Record<string, any>;
+    editable_args?: string[];
+  };
+  expires_at?: string | null;
 }
 
 interface HitlApprovalPillProps {

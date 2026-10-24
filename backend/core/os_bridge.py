@@ -277,11 +277,14 @@ try {
     if ($cur) {
         $props = Await ($cur.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
         $info = $cur.GetPlaybackInfo()
+        $tl = $cur.GetTimelineProperties()
         [PSCustomObject]@{
             title = $props.Title
             artist = $props.Artist
             album = $props.AlbumTitle
             status = $info.PlaybackStatus.ToString()
+            position_s = [int]$tl.Position.TotalSeconds
+            duration_s = [int](($tl.EndTime - $tl.StartTime).TotalSeconds)
         } | ConvertTo-Json -Compress
     } else {
         '{"status":"idle"}'
@@ -298,14 +301,130 @@ try {
         ).strip()
         if out:
             data = json.loads(out)
-            return data
+            if data.get("title"):
+                return data
+
     except Exception as e:
         logger.debug(f"GSMTC query fallback: {e}")
 
-    # Fallback default track state
+    # Honest zero-dummy state when no media is playing in OS
     return {
-        "title": "Paper Sky",
-        "artist": "Lumen Coast",
-        "album": "Lofi Focus",
-        "status": "playing",
+        "title": "Tidak ada media yang diputar",
+        "artist": "Buka Spotify, YouTube, atau pemutar musik",
+        "album": "",
+        "status": "idle",
     }
+
+
+MEDIA_CONTROL_METHODS = {
+    "play_pause": "TryTogglePlayPauseAsync",
+    "next": "TrySkipNextAsync",
+    "previous": "TrySkipPreviousAsync",
+}
+
+
+def control_media(action: str) -> Dict[str, Any]:
+    """Send a transport command (play_pause / next / previous) to the active Windows media session."""
+    method = MEDIA_CONTROL_METHODS.get(action)
+    if method is None:
+        raise ValueError(f"Aksi media tidak dikenal: {action}")
+
+    ps_script = f"""
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {{ $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' }})[0]
+Function Await($WinRtTask, $ResultType) {{
+    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
+    $netTask = $asTask.Invoke($null, @($WinRtTask))
+    $netTask.Wait(1500) | Out-Null
+    $netTask.Result
+}}
+try {{
+    [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media, ContentType = WindowsRuntime] | Out-Null
+    $op = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()
+    $mgr = Await $op ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+    $cur = $mgr.GetCurrentSession()
+    if ($cur) {{
+        $ok = Await ($cur.{method}()) ([bool])
+        if ($ok) {{ '{{"ok":true}}' }} else {{ '{{"ok":false,"reason":"rejected"}}' }}
+    }} else {{
+        '{{"ok":false,"reason":"no_session"}}'
+    }}
+}} catch {{
+    '{{"ok":false,"reason":"unavailable"}}'
+}}
+"""
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            text=True,
+            timeout=4,
+        ).strip()
+        return json.loads(out) if out else {"ok": False, "reason": "unavailable"}
+    except Exception as e:
+        logger.debug(f"GSMTC control failed: {e}")
+        return {"ok": False, "reason": "unavailable"}
+
+
+# ---------------------------------------------------------------------------
+# 7. Function keys (F1-F12) and media keys for the Dynamic Island OSD
+# ---------------------------------------------------------------------------
+
+# Privacy: ONLY these keys are watched, and only whether they are down. No other key is read, nothing is stored.
+FUNCTION_KEY_VKS: Dict[str, int] = {f"F{i}": 0x6F + i for i in range(1, 13)}  # VK_F1 = 0x70
+MEDIA_KEY_VKS: Dict[str, int] = {
+    "Play/Pause": 0xB3,
+    "Next": 0xB0,
+    "Previous": 0xB1,
+    "Stop": 0xB2,
+}
+
+# Standard Windows meanings (laptop-specific Fn actions such as brightness arrive as Volume/Brightness events instead)
+FUNCTION_KEY_LABELS: Dict[str, str] = {
+    "F1": "Bantuan",
+    "F2": "Ubah Nama",
+    "F3": "Cari",
+    "F4": "Daftar Alamat",
+    "F5": "Muat Ulang",
+    "F6": "Fokus Bilah Alamat",
+    "F7": "Navigasi Kursor",
+    "F8": "Mode Pilih",
+    "F9": "Segarkan Dokumen",
+    "F10": "Aktifkan Menu",
+    "F11": "Layar Penuh",
+    "F12": "Simpan Sebagai / DevTools",
+}
+
+
+def get_pressed_keys() -> set:
+    """Names of the watched keys (F1-F12 and media keys) that are physically down right now."""
+    try:
+        user32 = ctypes.windll.user32
+        down = set()
+        for name, vk in {**FUNCTION_KEY_VKS, **MEDIA_KEY_VKS}.items():
+            if user32.GetAsyncKeyState(vk) & 0x8000:
+                down.add(name)
+        return down
+    except Exception:
+        return set()
+
+
+def is_alt_down() -> bool:
+    try:
+        return bool(ctypes.windll.user32.GetAsyncKeyState(0x12) & 0x8000)  # VK_MENU
+    except Exception:
+        return False
+
+
+def newly_pressed(previous: set, current: set) -> List[str]:
+    """Keys that went from up to down between two polls, in a stable order (F1..F12 first, then media keys)."""
+    order = list(FUNCTION_KEY_VKS) + list(MEDIA_KEY_VKS)
+    return [k for k in order if k in current and k not in previous]
+
+
+def describe_key(name: str, alt: bool = False) -> Dict[str, Any]:
+    """OSD payload for one key press."""
+    if name in MEDIA_KEY_VKS:
+        return {"key": name, "label": "Kontrol Media", "kind": "media"}
+    if name == "F4" and alt:
+        return {"key": "Alt+F4", "label": "Tutup Jendela", "kind": "function"}
+    return {"key": name, "label": FUNCTION_KEY_LABELS.get(name, "Tombol Fungsi"), "kind": "function"}

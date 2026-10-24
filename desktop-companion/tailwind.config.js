@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: "class",
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -7,11 +8,19 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        serif: ["'Instrument Serif'", "Georgia", "serif"],
-        sans: ["'Plus Jakarta Sans'", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
+        sans: ["'Poppins'", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
         mono: ["'JetBrains Mono'", "monospace"],
       },
       colors: {
+        glass: "var(--bg-glass)",
+        card: "var(--bg-card)",
+        pill: "var(--bg-pill)",
+        subtle: "var(--border-subtle)",
+        strong: "var(--border-strong)",
+        ink: "var(--text-primary)",
+        "ink-2": "var(--text-secondary)",
+        "ink-muted": "var(--text-muted)",
+        accent: "var(--accent-primary)",
         karsa: {
           paper: "#FAF9F6",
           "paper-muted": "#F2EFE9",

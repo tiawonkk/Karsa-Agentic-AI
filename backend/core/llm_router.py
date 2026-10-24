@@ -14,11 +14,27 @@ from backend.core.token_tracker import TokenTrackerCallbackHandler
 
 T = TypeVar("T", bound=BaseModel)
 
-# Default Model Tier Profiles (Lightweight, Token-Efficient: Gemini 3.8 Flash & DeepSeek Flash)
+# Gemini model names that new API keys can no longer call (HTTP 404 "no longer available to new users").
+# A tier saved with one of these in system_settings is upgraded at read time (the saved row is not rewritten).
+GEMINI_DEFAULT_MODEL = "gemini-3.8-flash"
+RETIRED_GEMINI_MODELS = frozenset(
+    {"gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-pro", "gemini-2.5-flash", "gemini-2.5-pro"}
+)
+
+
+def modernize_tier_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Swap a retired Gemini model for the current default; every other provider/model is left untouched."""
+    out = dict(config)
+    if out.get("provider") == "gemini" and out.get("model") in RETIRED_GEMINI_MODELS:
+        out["model"] = GEMINI_DEFAULT_MODEL
+    return out
+
+
+# Default Model Tier Profiles (Lightweight, Token-Efficient: Gemini Flash & DeepSeek Flash)
 DEFAULT_TIER_PROFILES: dict[str, dict[str, Any]] = {
     "tier1_utility": {
         "provider": "gemini",
-        "model": "gemini-3.8-flash",
+        "model": GEMINI_DEFAULT_MODEL,
         "temperature": 0.1,
     },
     "tier2_code": {
@@ -44,7 +60,7 @@ class LLMRouter:
     def get_tier_config(self, tier: str) -> dict[str, Any]:
         """Fetch tier configuration from runtime overrides, DB system_settings, or defaults."""
         if tier in self._runtime_overrides:
-            return dict(self._runtime_overrides[tier])
+            return modernize_tier_config(self._runtime_overrides[tier])
 
         # Check SQLite system_settings
         try:
@@ -55,7 +71,7 @@ class LLMRouter:
                 )
                 row = cursor.fetchone()
                 if row and row["value"]:
-                    return json.loads(row["value"])
+                    return modernize_tier_config(json.loads(row["value"]))
         except Exception:
             pass
 
@@ -126,6 +142,9 @@ class LLMRouter:
             try:
                 from langchain_google_genai import ChatGoogleGenerativeAI
                 key = api_key or settings.gemini_api_key
+                if not key:
+                    from backend.core.database import get_system_setting
+                    key = get_system_setting("api_key.gemini", "")
                 return ChatGoogleGenerativeAI(
                     model=model_name,
                     google_api_key=key,
@@ -164,9 +183,13 @@ class LLMRouter:
         elif prov == "deepseek":
             try:
                 from langchain_openai import ChatOpenAI
+                key = api_key or settings.deepseek_api_key
+                if not key:
+                    from backend.core.database import get_system_setting
+                    key = get_system_setting("api_key.deepseek", "")
                 return ChatOpenAI(
                     model=model_name,
-                    api_key=api_key or settings.deepseek_api_key or "missing-key",
+                    api_key=key or "missing-key",
                     base_url=base_url or settings.deepseek_base_url,
                     temperature=temperature,
                     timeout=15.0,
@@ -204,7 +227,7 @@ class LLMRouter:
         """Get or create chat model instance configured with token tracking callbacks."""
         config = self.get_tier_config(tier)
         prov = provider or config.get("provider", "gemini")
-        mdl = model or config.get("model", "gemini-2.0-flash")
+        mdl = model or config.get("model", "gemini-3.8-flash")
         temp = temperature if temperature is not None else float(config.get("temperature", 0.2))
 
         hw = detect_hardware_profile()
@@ -224,6 +247,218 @@ class LLMRouter:
 
         return base_model.with_config(callbacks=[tracker])
 
+    def route_model_for_specialization(self, task_or_module: str) -> dict[str, Any]:
+        """Dynamic specialization auto-router (Instruction 4):
+        1. Daily tasks & Finance (@Money, @Todo, Chat/General):
+           - Auto-route to Google Gemini (Gemini Flash) for fast response & Indonesian fluency.
+        2. Research, Search, & Coding (@Search, @Study, @Code, @Write, @Data):
+           - Auto-route to DeepSeek (DeepSeek-R1-Distill 8B via local Ollama if GPU available)
+             or fallback to Gemini Pro / DeepSeek Flash if CPU-only mode.
+        3. Persisted / Overridable via SQLite system_settings table.
+        """
+        task = task_or_module.lower().strip().lstrip("@")
+
+        # Check manual override in system_settings
+        override_key = f"models.specialization.{task}"
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute(
+                    "SELECT value FROM system_settings WHERE key = ?;",
+                    (override_key,),
+                )
+                row = cursor.fetchone()
+                if row and row["value"]:
+                    return modernize_tier_config(json.loads(row["value"]))
+        except Exception:
+            pass
+
+        # 1. Daily tasks & Finance
+        daily_modules = {"money", "finance", "todo", "study_daily", "daily", "general", "chat", "companion", "greeting"}
+        if task in daily_modules:
+            selected = {
+                "specialization": "daily_and_finance",
+                "provider": "gemini",
+                "model": GEMINI_DEFAULT_MODEL,
+                "temperature": 0.2,
+                "tier": "tier1_utility",
+            }
+            return selected
+
+        # 2. Research, Search, & Coding
+        hw = detect_hardware_profile()
+        if hw.mode == "turbo_gpu":
+            selected = {
+                "specialization": "research_and_code",
+                "provider": "ollama",
+                "model": "deepseek-r1:8b",
+                "temperature": 0.2,
+                "tier": "tier2_code",
+            }
+        else:
+            # CPU-only fallback: Cloud DeepSeek or Gemini Pro
+            if settings.deepseek_api_key:
+                selected = {
+                    "specialization": "research_and_code",
+                    "provider": "deepseek",
+                    "model": "deepseek-ai/deepseek-v4.1-flash-1017",
+                    "temperature": 0.2,
+                    "tier": "tier2_code",
+                }
+            else:
+                selected = {
+                    "specialization": "research_and_code",
+                    "provider": "gemini",
+                    "model": GEMINI_DEFAULT_MODEL,
+                    "temperature": 0.2,
+                    "tier": "tier3_reasoning",
+                }
+
+        return selected
+
+    def set_specialization_override(
+        self,
+        task_or_module: str,
+        provider: str,
+        model: str,
+        temperature: float = 0.2,
+    ) -> None:
+        """Store user manual model override for a specialization in system_settings."""
+        task = task_or_module.lower().strip().lstrip("@")
+        override_key = f"models.specialization.{task}"
+        config_data = {
+            "specialization": task,
+            "provider": provider,
+            "model": model,
+            "temperature": temperature,
+        }
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO system_settings (key, value, updated_at)
+                    VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = excluded.updated_at;
+                    """,
+                    (override_key, json.dumps(config_data)),
+                )
+        except Exception:
+            pass
+
+    def verify_gemini_key(self, api_key: str) -> tuple[bool, str, str]:
+        """Test Gemini API key with live call to Google Gemini. Returns (success, model_name, message)."""
+        if not api_key or not api_key.strip():
+            return False, "", "API Key tidak boleh kosong."
+
+        clean_key = api_key.strip()
+        try:
+            from google import genai
+            client = genai.Client(api_key=clean_key)
+            tested_model = "gemini-2.0-flash"
+            # Test model availability
+            for m in ["gemini-3.8-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+                try:
+                    client.models.get(model=m)
+                    tested_model = m
+                    break
+                except Exception:
+                    continue
+
+            return True, tested_model, f"Berhasil terhubung ke Google {tested_model}!"
+        except Exception as e:
+            err_msg = str(e)
+            if "API key not valid" in err_msg or "INVALID_ARGUMENT" in err_msg:
+                return False, "", "API Key tidak valid. Mohon periksa kembali API Key Google Gemini Anda."
+            return False, "", f"Gagal terhubung ke Gemini: {err_msg[:120]}"
+
+    def check_models_health(self) -> dict[str, Any]:
+        """Health check endpoint testing DB, Gemini, and Ollama/DeepSeek (Instruction 5)."""
+        from backend.core.database import get_system_setting
+
+        # 1. Test SQLite connection
+        db_ok = False
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("SELECT 1;")
+                db_ok = True
+        except Exception:
+            db_ok = False
+
+        # 2. Test Gemini API with effective key (from settings or SQLite system_settings)
+        gemini_ok = False
+        gemini_msg = ""
+        effective_gemini_key = settings.gemini_api_key or get_system_setting("api_key.gemini")
+        if effective_gemini_key and str(effective_gemini_key).strip():
+            gemini_ok, tested_model, gemini_msg = self.verify_gemini_key(str(effective_gemini_key))
+            if gemini_ok:
+                settings.gemini_api_key = str(effective_gemini_key).strip()
+        else:
+            gemini_msg = "Gemini API Key belum diatur"
+
+        # 3. Test Ollama Local
+        ollama_ok = False
+        ollama_msg = ""
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                f"{settings.ollama_base_url}/api/tags",
+                headers={"User-Agent": "Karsa-HealthCheck"},
+            )
+            with urllib.request.urlopen(req, timeout=1.0) as resp:
+                if resp.status == 200:
+                    ollama_ok = True
+                    ollama_msg = "Ollama Local Ready"
+        except Exception:
+            ollama_ok = False
+            ollama_msg = "Ollama Local Offline"
+
+        # 4. DeepSeek Status
+        deepseek_ok = False
+        deepseek_msg = ""
+        effective_deepseek_key = settings.deepseek_api_key or get_system_setting("api_key.deepseek")
+        if effective_deepseek_key and str(effective_deepseek_key).strip():
+            deepseek_ok = True
+            deepseek_msg = "DeepSeek Cloud Active"
+        elif ollama_ok:
+            deepseek_ok = True
+            deepseek_msg = "DeepSeek Local Ready"
+        else:
+            deepseek_msg = "DeepSeek Offline"
+
+        # 5. Badge calculation & single unified source of truth
+        is_connected = gemini_ok or deepseek_ok
+        active_model = ""
+        if gemini_ok and deepseek_ok:
+            badge = "🟢 Gemini Active • 🟢 DeepSeek Ready"
+            badge_simple = "🟢 Gemini Active"
+            active_model = "Gemini Flash"
+        elif gemini_ok:
+            badge = "🟢 Gemini Active"
+            badge_simple = "🟢 Gemini Active"
+            active_model = "Gemini Flash"
+        elif deepseek_ok:
+            badge = "🟢 DeepSeek Ready"
+            badge_simple = "🟢 DeepSeek Ready"
+            active_model = "DeepSeek R1"
+        else:
+            badge = "🔴 API Disconnected"
+            badge_simple = "🔴 API Disconnected"
+            active_model = "None"
+
+        return {
+            "status": "healthy" if is_connected and db_ok else "degraded",
+            "is_connected": is_connected,
+            "connected_model": active_model,
+            "database": {"connected": db_ok, "name": "karsa_master.db"},
+            "gemini": {"connected": gemini_ok, "message": gemini_msg},
+            "ollama": {"connected": ollama_ok, "message": ollama_msg},
+            "deepseek": {"connected": deepseek_ok, "message": deepseek_msg},
+            "badge": badge,
+            "badge_simple": badge_simple,
+        }
+
 
 # Global router singleton
 router = LLMRouter()
+

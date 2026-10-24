@@ -8,14 +8,14 @@ interface CompactPillViewProps {
 /**
  * CompactPillView: Clean, minimal status pill (210px x 38px).
  * - Left: Green status progress ring (#10B981) or Amber Alert Ring
- * - Center: Bold digital clock (HH:mm)
- * - Right: 5 dynamic animated white audio waveform bars (|||||)
+ * - Center: Bold digital clock in JetBrains Mono (HH:mm) with WCAG AAA contrast
+ * - Right: 5 dynamic animated waveform bars in dark/light contrast
  */
 export const CompactPillView: React.FC<CompactPillViewProps> = ({
   isDark = true,
   hasPendingApproval = false,
 }) => {
-  const [timeStr, setTimeStr] = useState("07:48");
+  const [timeStr, setTimeStr] = useState("10:03");
 
   useEffect(() => {
     const update = () => {
@@ -30,7 +30,7 @@ export const CompactPillView: React.FC<CompactPillViewProps> = ({
   }, []);
 
   return (
-    <div className="w-full h-full flex items-center justify-between px-2 cursor-pointer">
+    <div className="w-full h-full flex items-center justify-between px-3 cursor-pointer select-none">
       {/* Left: Status Ring (#10B981 or Amber if Pending Approval) */}
       <div className="flex items-center gap-1.5">
         <div
@@ -51,18 +51,38 @@ export const CompactPillView: React.FC<CompactPillViewProps> = ({
         )}
       </div>
 
-      {/* Center: Bold Digital Clock (HH:mm) */}
-      <div className="font-mono font-bold text-sm text-white tracking-tight leading-none">
+      {/* Center: Bold Digital Clock in JetBrains Mono (Rule 1 & 2) */}
+      <div className="font-mono font-bold text-sm tracking-tight leading-none text-[#09090B] dark:text-[#FAFAFA]">
         {timeStr}
       </div>
 
-      {/* Right: 5 Dynamic Animated White Waveform Bars */}
+      {/* Right: 5 Dynamic Animated Waveform Bars */}
       <div className="flex items-end gap-0.5 h-3.5">
-        <span className="w-0.5 h-2 rounded-full bg-white animate-pulse" />
-        <span className="w-0.5 h-3.5 rounded-full bg-white animate-pulse delay-75" />
-        <span className="w-0.5 h-1.5 rounded-full bg-white animate-pulse delay-150" />
-        <span className="w-0.5 h-3 rounded-full bg-white animate-pulse delay-100" />
-        <span className="w-0.5 h-2.5 rounded-full bg-white animate-pulse delay-200" />
+        <span
+          className={`w-0.5 h-2 rounded-full animate-pulse ${
+            isDark ? "bg-zinc-200" : "bg-zinc-800"
+          }`}
+        />
+        <span
+          className={`w-0.5 h-3.5 rounded-full animate-pulse delay-75 ${
+            isDark ? "bg-zinc-200" : "bg-zinc-800"
+          }`}
+        />
+        <span
+          className={`w-0.5 h-1.5 rounded-full animate-pulse delay-150 ${
+            isDark ? "bg-zinc-200" : "bg-zinc-800"
+          }`}
+        />
+        <span
+          className={`w-0.5 h-3 rounded-full animate-pulse delay-100 ${
+            isDark ? "bg-zinc-200" : "bg-zinc-800"
+          }`}
+        />
+        <span
+          className={`w-0.5 h-2.5 rounded-full animate-pulse delay-200 ${
+            isDark ? "bg-zinc-200" : "bg-zinc-800"
+          }`}
+        />
       </div>
     </div>
   );

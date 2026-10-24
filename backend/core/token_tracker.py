@@ -12,6 +12,7 @@ from backend.core.database import get_db_cursor
 # Approximate Pricing per 1 Million Tokens (USD)
 # (Local Ollama is always 0.0 USD)
 MODEL_PRICING_USD_PER_1M: dict[str, tuple[float, float]] = {
+    "gemini-3.8-flash": (0.10, 0.40),
     "gemini-2.0-flash": (0.10, 0.40),
     "gemini-1.5-flash": (0.075, 0.30),
     "gemini-2.0-pro": (1.25, 5.00),

@@ -111,6 +111,24 @@ def test_api_dynamic_island_v3_endpoints(tmp_path: Path, monkeypatch):
     assert resp_h_today.json()["total_ml"] == 250
     assert len(resp_h_today.json()["hourly_chart"]) == 13
 
+    # 2b. Hydration settings persist in SQLite and drive the summary target
+    resp_hs = client.get("/api/v1/hydration/settings")
+    assert resp_hs.status_code == 200
+    assert resp_hs.json() == {
+        "daily_target_ml": 2000, "glass_ml": 250, "interval_minutes": 120, "reminder_enabled": True,
+    }
+    resp_hs_put = client.put(
+        "/api/v1/hydration/settings",
+        json={"daily_target_ml": 2500, "interval_minutes": 90, "reminder_enabled": False},
+    )
+    assert resp_hs_put.status_code == 200
+    assert resp_hs_put.json()["glass_ml"] == 250  # untouched field kept
+    assert client.get("/api/v1/hydration/settings").json() == {
+        "daily_target_ml": 2500, "glass_ml": 250, "interval_minutes": 90, "reminder_enabled": False,
+    }
+    assert client.get("/api/v1/hydration/today").json()["target_ml"] == 2500
+    assert client.put("/api/v1/hydration/settings", json={"interval_minutes": 0}).status_code == 422
+
     # 3. Shelf files
     resp_s_add = client.post(
         "/api/v1/shelf/files",
@@ -170,7 +188,7 @@ def test_api_dynamic_island_v3_endpoints(tmp_path: Path, monkeypatch):
         json={
             "tier": "tier1_utility",
             "provider": "gemini",
-            "model": "gemini-2.0-flash",
+            "model": "gemini-3.8-flash",
             "temperature": 0.2,
         },
     )
@@ -183,3 +201,96 @@ def test_api_dynamic_island_v3_endpoints(tmp_path: Path, monkeypatch):
     assert "totals" in resp_tokens.json()
     assert "total_cost_idr" in resp_tokens.json()["totals"]
 
+    # 10. Tasks API (Zero Dummy Data)
+    resp_task_add = client.post(
+        "/api/v1/tasks",
+        json={"title": "Mengerjakan Tugas Besar AI", "is_urgent": True, "is_important": True},
+    )
+    assert resp_task_add.status_code == 200
+    task_id = resp_task_add.json()["task"]["id"]
+
+    resp_task_list = client.get("/api/v1/tasks")
+    assert resp_task_list.status_code == 200
+    assert len(resp_task_list.json()["tasks"]) >= 1
+
+    resp_task_done = client.post(f"/api/v1/tasks/{task_id}/complete")
+    assert resp_task_done.status_code == 200
+    assert resp_task_done.json()["status"] == "completed"
+
+    # 11. Finance Report API
+    resp_fin = client.get("/api/v1/finance/report")
+    assert resp_fin.status_code == 200
+    assert "snapshot" in resp_fin.json()
+    assert "transactions" in resp_fin.json()
+
+    # 12. Wardrobe Items API
+    resp_w_save = client.post(
+        "/api/v1/wardrobe/items",
+        json={
+            "id": "hat_test_1",
+            "name": "Topi Wisuda",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+            "anchor_type": "head_top",
+            "is_active": True,
+        },
+    )
+    assert resp_w_save.status_code == 200
+    assert resp_w_save.json()["status"] == "saved"
+
+    resp_w_list = client.get("/api/v1/wardrobe/items")
+    assert resp_w_list.status_code == 200
+    assert resp_w_list.json()["count"] >= 1
+
+    resp_w_del = client.delete("/api/v1/wardrobe/items/hat_test_1")
+    assert resp_w_del.status_code == 200
+    assert resp_w_del.json()["status"] == "deleted"
+
+    # 13. Health Models API (Instruction 5)
+    resp_health = client.get("/api/health/models")
+    assert resp_health.status_code == 200
+    assert resp_health.json()["status"] == "healthy"
+    assert "database" in resp_health.json()
+    assert "badge" in resp_health.json()
+
+    # 14. Model Auto-Router & Override API (Instruction 4)
+    resp_route_daily = client.get("/api/models/route?task=money")
+    assert resp_route_daily.status_code == 200
+    assert resp_route_daily.json()["specialization"] == "daily_and_finance"
+    assert resp_route_daily.json()["provider"] == "gemini"
+
+    resp_route_code = client.get("/api/models/route?task=code")
+    assert resp_route_code.status_code == 200
+    assert resp_route_code.json()["specialization"] == "research_and_code"
+
+    resp_override = client.post(
+        "/api/models/override",
+        json={"task": "code", "provider": "deepseek", "model": "deepseek-coder", "temperature": 0.1},
+    )
+    assert resp_override.status_code == 200
+    assert resp_override.json()["status"] == "success"
+
+    # 15. Chat Balance Inquiry via SQLite (Instruction 1)
+    resp_chat = client.post(
+        "/api/chat",
+        json={"message": "uang saya berapa skrg"},
+    )
+    assert resp_chat.status_code == 200
+    reply = resp_chat.json().get("response") or resp_chat.json().get("text")
+    assert "Total modalmu bulan ini" in reply
+    assert "sudah terpakai" in reply
+    assert "sisa belanja amanmu hari ini adalah" in reply
+
+
+
+
+
+def test_api_theme_setting_roundtrip(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    initialize_master_database(settings.master_db_path)
+
+    assert client.get("/api/v1/settings/theme").json() == {"mode": "system"}
+    assert client.put("/api/v1/settings/theme", json={"mode": "dark"}).json() == {"mode": "dark"}
+    assert client.get("/api/v1/settings/theme").json() == {"mode": "dark"}
+    assert client.put("/api/v1/settings/theme", json={"mode": "light"}).status_code == 200
+    assert client.get("/api/v1/settings/theme").json() == {"mode": "light"}
+    assert client.put("/api/v1/settings/theme", json={"mode": "neon"}).status_code == 422

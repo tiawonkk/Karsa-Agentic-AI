@@ -1,13 +1,18 @@
 import React from "react";
 import { NotchIsland } from "./components/NotchIsland.tsx";
+import { ThemeProvider } from "./context/ThemeContext.tsx";
+import { WidgetsProvider } from "./context/WidgetsContext.tsx";
 
 export const App: React.FC = () => {
   return (
-    <main className="w-screen h-screen bg-transparent overflow-hidden relative font-sans">
-      {/* Subtle Film Grain (2.5% Opacity) (Section 2.2) */}
-      <div className="fixed inset-0 pointer-events-none z-[999] grain-overlay" />
-      <NotchIsland />
-    </main>
+    <ThemeProvider>
+      <WidgetsProvider>
+        {/* Click-through root: only the notch, the right dock and active widgets re-enable pointer events */}
+        <div className="fixed inset-0 pointer-events-none w-screen h-screen bg-transparent overflow-hidden select-none font-sans">
+          <NotchIsland />
+        </div>
+      </WidgetsProvider>
+    </ThemeProvider>
   );
 };
 

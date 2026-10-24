@@ -199,11 +199,11 @@ export const HardwareOsdPill: React.FC<HardwareOsdPillProps> = ({ isDark = true 
 
               {/* Title & Subtitle */}
               <div className="truncate">
-                <div className="text-xs font-bold tracking-tight text-white leading-tight">
+                <div className="text-xs font-bold tracking-tight text-zinc-950 dark:text-zinc-50 leading-tight">
                   {activeOsd.title}
                 </div>
                 {activeOsd.subtitle && (
-                  <div className="text-[10px] text-zinc-400 leading-tight">
+                  <div className="text-[10px] text-zinc-600 dark:text-zinc-400 leading-tight">
                     {activeOsd.subtitle}
                   </div>
                 )}
@@ -221,7 +221,7 @@ export const HardwareOsdPill: React.FC<HardwareOsdPillProps> = ({ isDark = true 
                 </div>
               ) : activeOsd.value !== undefined ? (
                 // Reference Image 2: Large clean percentage display
-                <div className="font-sans font-semibold text-xl text-white tracking-tight">
+                <div className="font-sans font-semibold text-xl text-zinc-950 dark:text-zinc-50 tracking-tight">
                   {activeOsd.value}%
                 </div>
               ) : activeOsd.badge ? (

@@ -31,3 +31,15 @@ def test_unsupported_provider():
     r = LLMRouter()
     with pytest.raises(ValueError, match="Unsupported LLM provider"):
         r.create_chat_model("unknown_xyz", "some_model")
+
+
+def test_retired_gemini_models_are_upgraded_but_other_models_are_untouched():
+    from backend.core.llm_router import GEMINI_DEFAULT_MODEL, modernize_tier_config
+
+    for dead in ("gemini-1.5-pro", "gemini-2.0-flash", "gemini-2.5-flash"):
+        assert modernize_tier_config({"provider": "gemini", "model": dead, "temperature": 0.2}) == {
+            "provider": "gemini", "model": GEMINI_DEFAULT_MODEL, "temperature": 0.2,
+        }
+    keep = {"provider": "deepseek", "model": "gemini-2.5-flash", "temperature": 0.1}  # not a Gemini provider
+    assert modernize_tier_config(keep) == keep
+    assert modernize_tier_config({"provider": "gemini", "model": "gemini-3.1-pro-preview"})["model"] == "gemini-3.1-pro-preview"
