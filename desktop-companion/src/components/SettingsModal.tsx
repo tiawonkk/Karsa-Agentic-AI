@@ -21,6 +21,7 @@ import {
   Maximize2,
 } from "lucide-react";
 import { ModelPlanPanel } from "./ModelPlanPanel";
+import { MobileConnectPanel } from "./MobileConnectPanel";
 import { useSystemStatus } from "../context/SystemStatusContext";
 import { SettingsSlide } from "./slides/SettingsSlide";
 
@@ -85,7 +86,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSleepChange,
   isDark = true,
 }) => {
-  const [activeTab, setActiveTab] = useState<"keys" | "plan" | "appearance" | "hardware">("keys");
+  const [activeTab, setActiveTab] = useState<"keys" | "plan" | "appearance" | "hardware" | "phone">("keys");
   const [isPinned, setIsPinned] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -396,6 +397,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <Cpu className="w-3 h-3 text-blue-400" />
               <span>Hardware</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab("phone")}
+              className={`px-2 py-1 rounded-md flex items-center gap-1 whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === "phone"
+                  ? isDark
+                    ? "bg-white/15 text-white shadow-xs"
+                    : "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <span aria-hidden="true">📱</span>
+              <span>HP</span>
+            </button>
           </div>
 
           {/* Tab Content Body */}
@@ -548,6 +563,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
             {activeTab === "plan" && <ModelPlanPanel />}
+
+            {activeTab === "phone" && <MobileConnectPanel />}
 
             {activeTab === "appearance" && (
               <div className="space-y-3">

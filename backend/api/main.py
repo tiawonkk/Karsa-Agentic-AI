@@ -108,6 +108,11 @@ from backend.api.automation import router as automation_router  # noqa: E402
 
 app.include_router(automation_router)
 
+from backend.api.mobile import mobile_guard, router as mobile_router  # noqa: E402
+
+app.include_router(mobile_router)
+app.middleware("http")(mobile_guard)
+
 # Cross-Origin Resource Sharing
 app.add_middleware(
     CORSMiddleware,

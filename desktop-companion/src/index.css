@@ -340,3 +340,13 @@ html, body, #root {
   border: 1px solid rgba(255, 255, 255, 0.10) !important;
   color: #F8FAFC !important;
 }
+
+/* Phone companion (m.html): a normal full-screen page, not the click-through desktop overlay */
+html.mobile, html.mobile body, html.mobile #root {
+  pointer-events: auto !important;
+  background: var(--bg-widget, #f4f4f5) !important;
+  height: 100%;
+  overflow: hidden;
+  user-select: text;
+  -webkit-user-select: text;
+}
