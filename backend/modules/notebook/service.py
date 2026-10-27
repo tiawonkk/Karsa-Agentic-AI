@@ -80,7 +80,7 @@ def safe_filename(name: str) -> str:
     return base[:120]
 
 
-def ingest_file(notebook_id: int, file_path: Path, display_name: str | None = None, db_path: Path | str | None = None) -> dict[str, Any]:
+def ingest_file(notebook_id: int, file_path: Path, display_name: str | None = None, db_path: Path | str | None = None, ocr_fn: Callable[[bytes], str] | None = None) -> dict[str, Any]:
     """Index a stored file. Documents are chunked; datasets are indexed as a compact profile."""
     ext = file_path.suffix.lower()
     name = display_name or file_path.name
@@ -94,6 +94,12 @@ def ingest_file(notebook_id: int, file_path: Path, display_name: str | None = No
             text = extract_text_from_file(file_path)
         except Exception as e:
             raise NotebookError(f"Dokumen tidak bisa dibaca: {str(e)[:120]}")
+        if not text.strip() and ext == ".pdf":
+            from backend.modules.notebook import extras
+
+            ocr = extras.ocr_pdf(file_path, ocr_fn=ocr_fn)  # a scanned PDF: read its page images (needs a Gemini key)
+            note = f"\n\n[OCR: {ocr['pages']} dari {ocr['total_pages']} halaman dibaca" + (", sisanya dilewati]" if ocr["truncated"] else "]")
+            return add_source(notebook_id, name, "document", ocr["text"] + note, path=str(file_path), db_path=db_path)
         if not text.strip():
             raise NotebookError("Dokumen tidak berisi teks yang bisa diekstrak (mungkin hasil scan/gambar).")
         return add_source(notebook_id, name, "document", text, path=str(file_path), db_path=db_path)

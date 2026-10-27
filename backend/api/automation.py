@@ -246,3 +246,106 @@ def delete_build_endpoint(build_id: int) -> dict[str, Any]:
     except store.StudioError as e:
         raise _studio_error(e)
     return {"status": "deleted"}
+
+
+# ------------------------------------------------------------------------------------------------ notebook extras
+from backend.modules.notebook import extras as nb_extras  # noqa: E402
+from backend.modules.notebook import ml_export  # noqa: E402
+from backend.modules.notebook.store import NotebookError  # noqa: E402
+
+
+def _nb_http(e: NotebookError) -> HTTPException:
+    status = {"not_found": 404, "too_large": 413, "no_api_key": 400}.get(getattr(e, "code", ""), 400)
+    return HTTPException(status_code=status, detail=str(e))
+
+
+class UrlSourceRequest(BaseModel):
+    url: str
+
+
+@router.post("/notebooks/{notebook_id}/sources/url")
+async def add_url_source_endpoint(notebook_id: int, req: UrlSourceRequest) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(nb_extras.add_url_source, notebook_id, req.url)
+    except NotebookError as e:
+        raise _nb_http(e)
+
+
+@router.post("/notebooks/{notebook_id}/audio-overview")
+async def audio_overview_endpoint(notebook_id: int) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(nb_extras.audio_overview, notebook_id, _llm("study"))
+    except NotebookError as e:
+        raise _nb_http(e)
+
+
+class QuizRequest(BaseModel):
+    count: int = 6
+
+
+@router.post("/notebooks/{notebook_id}/quiz")
+async def quiz_endpoint(notebook_id: int, req: QuizRequest) -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(nb_extras.generate_quiz, notebook_id, req.count, _llm("study"))
+    except NotebookError as e:
+        raise _nb_http(e)
+
+
+# ------------------------------------------------------------------------------------------------ @Data one-click
+class MlReadyRequest(BaseModel):
+    shelf_id: int | None = None
+    source_id: int | None = None
+    target: str | None = None
+    scale: str = "standard"
+    encode: str = "auto"
+
+
+@router.post("/studio/data/ml-ready")
+async def ml_ready_endpoint(req: MlReadyRequest) -> dict[str, Any]:
+    """Clean + impute + encode + scale a CSV/XLSX from the file shelf or a notebook dataset; writes new files only."""
+    from pathlib import Path
+
+    from backend.core import shelf as shelf_store
+    from backend.modules.notebook import store as nb_store
+
+    if req.shelf_id is not None:
+        try:
+            path, _ = shelf_store.file_path_of(req.shelf_id)
+        except shelf_store.ShelfError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+    elif req.source_id is not None:
+        try:
+            src = nb_store.get_source(req.source_id)
+        except NotebookError as e:
+            raise _nb_http(e)
+        path = Path(src["path"]) if src.get("path") and src["kind"] == "dataset" else None
+        if path is None or not path.exists():
+            raise HTTPException(status_code=400, detail="Sumber ini bukan dataset yang tersimpan.")
+    else:
+        raise HTTPException(status_code=422, detail="Pilih file dari Laci (shelf_id) atau dataset Notebook (source_id).")
+    if path.suffix.lower() not in (".csv", ".xlsx", ".xls"):
+        raise HTTPException(status_code=415, detail="Hanya file CSV atau Excel yang bisa disiapkan.")
+    try:
+        out = await asyncio.to_thread(ml_export.build_ml_ready, path, req.target, req.scale, req.encode)
+    except NotebookError as e:
+        raise _nb_http(e)
+    base = "/api/v1/files/outputs/"
+    f = out["files"]
+    out["downloads"] = {"ml_csv": base + f["ml_csv"], "stats_csv": base + f["stats_csv"], "stats_docx": base + f["stats_docx"], "charts": [base + c for c in f["charts"]]}
+    return out
+
+
+# ------------------------------------------------------------------------------------------------ @Search
+class LiteratureRequest(BaseModel):
+    query: str
+    per_source: int = 4
+
+
+@router.post("/studio/literature")
+async def literature_endpoint(req: LiteratureRequest) -> dict[str, Any]:
+    """Real papers from arXiv, Crossref and Semantic Scholar plus the extracted literature matrix."""
+    q = req.query.strip()
+    if len(q) < 3:
+        raise HTTPException(status_code=422, detail="Tulis kata kunci minimal 3 huruf.")
+    found = await asyncio.to_thread(literature.search_all, q, max(1, min(req.per_source, 8)))
+    return {"query": q, "papers": found["papers"], "matrix": literature.literature_matrix(found["papers"]), "errors": found["errors"]}
