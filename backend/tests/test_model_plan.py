@@ -21,6 +21,7 @@ def no_keys(monkeypatch):
     for p in ("gemini", "groq", "openrouter", "cerebras", "mistral", "deepseek"):
         monkeypatch.setattr(settings, f"{p}_api_key", None)
     monkeypatch.setattr(lr, "detect_hardware_profile", lambda: SimpleNamespace(mode="eco_cpu"))
+    monkeypatch.setattr(lr.LLMRouter, "ollama_up", staticmethod(lambda: False))  # a real local Ollama must not answer tests
 
 
 def plan():
@@ -99,7 +100,7 @@ def test_all_failing_raises_a_clear_error(monkeypatch):
 
 
 def test_no_key_at_all_says_so():
-    with pytest.raises(RuntimeError, match="Tidak ada penyedia"):
+    with pytest.raises(RuntimeError, match="belum diisi di Settings"):
         router.invoke_text("chat", [HumanMessage(content="hai")])
 
 

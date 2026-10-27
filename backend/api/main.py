@@ -322,6 +322,7 @@ def save_api_keys(req: ApiKeysRequest) -> dict[str, Any]:
         _persist_env_value(field, value)
         setattr(settings, field, value or None)
         saved.append(field)
+    router.invalidate_health()
     return {"status": "saved", "saved": saved}
 
 
@@ -360,6 +361,7 @@ def get_api_keys_endpoint() -> dict[str, Any]:
 @app.post("/api/v1/settings/keys")
 def save_and_connect_key_endpoint(req: SaveKeyRequest) -> dict[str, Any]:
     """Persist API key to SQLite system_settings, .env, and perform a live test call."""
+    router.invalidate_health()
     from backend.core.database import set_system_setting
     target_key = (req.api_key or req.gemini_api_key or "").strip()
 
@@ -776,9 +778,28 @@ def dedupe_tasks_endpoint() -> dict[str, Any]:
 
 @app.get("/api/health/models")
 @app.get("/api/v1/health/models")
-def models_health_endpoint() -> dict[str, Any]:
-    """Test connection to DB, Gemini, and Ollama/DeepSeek (Instruction 5)."""
-    return router.check_models_health()
+def models_health_endpoint(force: bool = False) -> dict[str, Any]:
+    """Live 1-token ping to every provider that has a key (cached 30 s; `force=true` re-tests): what really works now.
+
+    `ok` / `badge` / `providers` are the live result; `status` stays "healthy" while the database works and at least one
+    key is configured (older callers read it)."""
+    live = router.live_health(force=force)
+    try:
+        with get_db_cursor() as cursor:
+            cursor.execute("SELECT 1;")
+        db_ok = True
+    except Exception:
+        db_ok = False
+    configured = any(p["has_key"] for p in live["providers"])
+    active = next((p for p in live["providers"] if p["id"] == live["active"]), None)
+    return {
+        **live,
+        "status": "healthy" if db_ok and configured else "degraded",
+        "is_connected": live["ok"],
+        "connected_model": active["label"] if active else "None",
+        "badge_simple": live["badge"],
+        "database": {"connected": db_ok, "name": "karsa_master.db"},
+    }
 
 
 @app.get("/api/models/route")
@@ -934,7 +955,9 @@ def save_provider_key(req: ProviderKeyRequest) -> dict[str, Any]:
     set_system_setting(f"api_key.{req.provider}", key)
     if hasattr(settings, f"{req.provider}_api_key"):
         setattr(settings, f"{req.provider}_api_key", key or None)
+    router.invalidate_health()  # the new key is used by the very next request: no restart
     return {"provider": req.provider, "has_key": bool(key), "plan": router.plan_overview()}
+
 
 
 @app.post("/api/v1/settings/plan/{purpose}/test")

@@ -48,6 +48,16 @@ export const SystemStatusProvider: React.FC<{
         setConnectedModel(data.connected_model || (connected ? "Gemini Flash" : "None"));
         setActiveBadge(data.badge_simple || (connected ? "🟢 Gemini Active" : "🔴 API Disconnected"));
         setIsDbConnected(Boolean(data.database?.connected ?? true));
+        // what really works right now: a live 1-token ping per provider (cached 30 s by the backend)
+        try {
+          const live = await fetch("/api/health/models");
+          if (live.ok) {
+            const h = await live.json();
+            setIsApiConnected(Boolean(h.ok));
+            if (h.badge) setActiveBadge(h.badge);
+            if (h.active) setConnectedModel(h.providers?.find((p: any) => p.id === h.active)?.label ?? h.active);
+          }
+        } catch (_) {}
       } else {
         // Fallback to /api/health/models
         const resHealth = await fetch("/api/health/models");

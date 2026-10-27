@@ -241,7 +241,7 @@ def _general_llm_answer(prompt: str, history: str = "", purpose: str = "chat") -
                 writer({"token": piece})
         return "".join(parts)
     except Exception as e:
-        return f"⚠️ Gagal memanggil AI: {str(e)[:200]}\nPeriksa koneksi internet atau kunci API di Settings."
+        return f"⚠️ AI tidak bisa menjawab.\n{str(e)[:600]}"
 
 
 def subagent_dispatch_node(state: KarsaState) -> dict[str, Any]:

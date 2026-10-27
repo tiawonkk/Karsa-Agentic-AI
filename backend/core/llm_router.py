@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, TypeVar
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
@@ -112,14 +116,86 @@ PURPOSES: dict[str, dict[str, str]] = {
     "writer": {"label": "Penulisan ilmiah", "prefer": "deepseek"},
     "code": {"label": "Kode & data", "prefer": "deepseek"},
 }
-LLM_TIMEOUT_S = 25.0
-LLM_RETRIES = 1
+LLM_TIMEOUT_S = 20.0
+LLM_RETRIES = 0  # the client libraries do not retry: `_call_with_backoff` does, so the wait is bounded and visible
+LLM_BACKOFF_RETRIES = 2  # extra tries on the same provider for transient errors (429, 5xx, timeouts, network)
+LLM_BACKOFF_BASE_S = 0.8
+
+
+class LLMUnavailable(RuntimeError):
+    """No provider could answer. The message says, per provider, exactly why (never a generic 'model did not respond')."""
+
+
+def classify_error(exc: BaseException) -> str:
+    """auth | quota | model | timeout | network | other, from whatever the provider library raised."""
+    t = f"{type(exc).__name__} {exc}".lower()
+    if any(k in t for k in ("401", "403", "unauthorized", "permission", "api key not valid", "invalid api key", "invalid_api_key", "api_key_invalid", "authentication")):
+        return "auth"
+    if any(k in t for k in ("429", "quota", "rate limit", "rate_limit", "resource_exhausted", "too many requests", "exceeded")):
+        return "quota"
+    if any(k in t for k in ("404", "not found", "no longer available", "model_not_found", "does not exist", "decommissioned")):
+        return "model"
+    if any(k in t for k in ("timeout", "timed out", "deadline")):
+        return "timeout"
+    if any(k in t for k in ("connection", "resolve", "unreachable", "network", "ssl", "refused", "getaddrinfo")):
+        return "network"
+    return "other"
+
+
+_KIND_TEXT = {
+    "auth": "kunci API ditolak atau tidak berlaku: periksa kunci di Settings",
+    "quota": "kuota atau batas permintaan habis: coba lagi nanti atau pakai penyedia lain",
+    "model": "nama model tidak tersedia untuk kunci ini: pilih model lain di Settings > Model AI",
+    "timeout": f"tidak menjawab dalam {int(LLM_TIMEOUT_S)} detik",
+    "network": "tidak bisa terhubung: periksa koneksi internet",
+    "other": "gagal",
+}
+
+
+def describe_failure(provider: str, exc: BaseException) -> str:
+    label = PROVIDER_CATALOG.get(provider, {}).get("label", provider)
+    kind = classify_error(exc)
+    detail = "" if kind != "other" else f" ({str(exc).strip()[:120]})"
+    return f"{label}: {_KIND_TEXT[kind]}{detail}"
+
+
+class _RateLimiter:
+    """Client-side limiter per provider so free-tier keys are not blocked with 429: a minimum gap and a per-minute cap."""
+
+    def __init__(self, per_minute: int = 20, min_gap_s: float = 0.25) -> None:
+        self.per_minute = per_minute
+        self.min_gap_s = min_gap_s
+        self._stamps: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def acquire(self, provider: str, max_wait_s: float = 6.0) -> bool:
+        """Wait for a slot (at most `max_wait_s`). False means the provider is saturated right now."""
+        deadline = time.monotonic() + max_wait_s
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                stamps = [t for t in self._stamps.get(provider, []) if now - t < 60.0]
+                wait = 0.0
+                if stamps and now - stamps[-1] < self.min_gap_s:
+                    wait = self.min_gap_s - (now - stamps[-1])
+                if len(stamps) >= self.per_minute:
+                    wait = max(wait, 60.0 - (now - stamps[0]))
+                if wait <= 0:
+                    stamps.append(now)
+                    self._stamps[provider] = stamps
+                    return True
+                self._stamps[provider] = stamps
+            if time.monotonic() + wait > deadline:
+                return False
+            time.sleep(wait)
 
 
 class LLMRouter:
     """Universal Model Router supporting hot-swappable providers and hardware adaptation."""
 
     def __init__(self) -> None:
+        self.limiter = _RateLimiter()
+        self.backoff_base = LLM_BACKOFF_BASE_S
         self._cached_models: dict[str, BaseChatModel] = {}
         self._runtime_overrides: dict[str, dict[str, Any]] = {}
 
@@ -403,6 +479,24 @@ class LLMRouter:
             ],
         }
 
+    @staticmethod
+    def ollama_up() -> bool:
+        """Is a local Ollama answering? Cached for a few seconds so every chat does not ping it."""
+        now = time.monotonic()
+        cached = getattr(LLMRouter, "_ollama_seen", None)
+        if cached and now - cached[0] < 15.0:
+            return cached[1]
+        ok = False
+        try:
+            import urllib.request
+
+            with urllib.request.urlopen(f"{settings.ollama_base_url}/api/tags", timeout=0.8) as resp:
+                ok = resp.status == 200
+        except Exception:
+            ok = False
+        LLMRouter._ollama_seen = (now, ok)
+        return ok
+
     def candidates(self, purpose: str) -> list[dict[str, Any]]:
         """The purpose's model first, then every other ready provider (so a slow or exhausted one never blocks chat)."""
         first = self.get_purpose_config(purpose)
@@ -410,7 +504,28 @@ class LLMRouter:
         for pid in PROVIDER_ORDER:
             if pid != first["provider"] and self.provider_ready(pid):
                 out.append({"provider": pid, "model": self._default_model(pid), "temperature": first.get("temperature", 0.2)})
+        if not any(c["provider"] == "ollama" for c in out) and self.ollama_up():  # last resort: the local model
+            out.append({"provider": "ollama", "model": self._default_model("ollama"), "temperature": first.get("temperature", 0.2)})
         return out
+
+    def _no_provider_message(self, purpose: str) -> str:
+        want = self.get_purpose_config(purpose)["provider"]
+        label = PROVIDER_CATALOG.get(want, {}).get("label", want)
+        return f"API Key {label} belum diisi di Settings, dan tidak ada penyedia lain yang punya kunci. Tempel satu kunci gratis di Settings > Model AI."
+
+    def _call_with_backoff(self, provider: str, fn):
+        """Run `fn` with the rate limiter and up to LLM_BACKOFF_RETRIES retries (exponential) for transient errors only."""
+        attempt = 0
+        while True:
+            if not self.limiter.acquire(provider):
+                raise RuntimeError("429 batas permintaan lokal tercapai")
+            try:
+                return fn()
+            except Exception as e:
+                if classify_error(e) in ("auth", "model") or attempt >= LLM_BACKOFF_RETRIES:
+                    raise
+                time.sleep(self.backoff_base * (2**attempt))
+                attempt += 1
 
     def _model_for(self, cfg: dict[str, Any], purpose: str, module_name: str, session_thread_id: str | None, timeout: float | None):
         return self.get_chat_model(
@@ -431,16 +546,24 @@ class LLMRouter:
         timeout: float | None = None,
     ) -> str:
         """One answer with automatic failover across the providers that have a key."""
-        last: Exception | None = None
-        for cfg in self.candidates(purpose):
+        cands = self.candidates(purpose)
+        if not cands:
+            raise LLMUnavailable(self._no_provider_message(purpose))
+        problems: list[str] = []
+        for cfg in cands:
             try:
-                res = self._model_for(cfg, purpose, module_name, session_thread_id, timeout).invoke(messages)
-                text = res.content if isinstance(res.content, str) else "".join(str(c.get("text", c)) if isinstance(c, dict) else str(c) for c in res.content)
-                if text.strip():
+
+                def once(cfg=cfg):
+                    res = self._model_for(cfg, purpose, module_name, session_thread_id, timeout).invoke(messages)
+                    text = res.content if isinstance(res.content, str) else "".join(str(c.get("text", c)) if isinstance(c, dict) else str(c) for c in res.content)
+                    if not text.strip():
+                        raise RuntimeError("jawaban kosong")
                     return text
+
+                return self._call_with_backoff(cfg["provider"], once)
             except Exception as e:  # try the next provider
-                last = e
-        raise RuntimeError(str(last) if last else "Tidak ada penyedia AI yang siap. Pasang kunci API di Settings.")
+                problems.append(describe_failure(cfg["provider"], e))
+        raise LLMUnavailable("Semua penyedia gagal:\n- " + "\n- ".join(problems))
 
     def stream_text(
         self,
@@ -451,23 +574,37 @@ class LLMRouter:
         timeout: float | None = None,
     ):
         """Yield the answer piece by piece. Fails over to the next provider only before the first piece arrived."""
-        last: Exception | None = None
-        for cfg in self.candidates(purpose):
+        cands = self.candidates(purpose)
+        if not cands:
+            raise LLMUnavailable(self._no_provider_message(purpose))
+        problems: list[str] = []
+        for cfg in cands:
             started = False
-            try:
-                for chunk in self._model_for(cfg, purpose, module_name, session_thread_id, timeout).stream(messages):
-                    c = chunk.content
-                    text = c if isinstance(c, str) else "".join(str(x.get("text", "")) if isinstance(x, dict) else str(x) for x in c)
-                    if text:
-                        started = True
-                        yield text
-                if started:
-                    return
-            except Exception as e:
-                last = e
-                if started:
-                    return  # keep what the user already saw; do not restart on another model mid-sentence
-        raise RuntimeError(str(last) if last else "Tidak ada penyedia AI yang siap. Pasang kunci API di Settings.")
+            attempt = 0
+            while True:
+                if not self.limiter.acquire(cfg["provider"]):
+                    problems.append(describe_failure(cfg["provider"], RuntimeError("429 batas permintaan lokal tercapai")))
+                    break
+                try:
+                    for chunk in self._model_for(cfg, purpose, module_name, session_thread_id, timeout).stream(messages):
+                        c = chunk.content
+                        text = c if isinstance(c, str) else "".join(str(x.get("text", "")) if isinstance(x, dict) else str(x) for x in c)
+                        if text:
+                            started = True
+                            yield text
+                    if started:
+                        return
+                    problems.append(f"{PROVIDER_CATALOG.get(cfg['provider'], {}).get('label', cfg['provider'])}: jawaban kosong")
+                    break
+                except Exception as e:
+                    if started:
+                        return  # keep what the user already saw; do not restart on another model mid-sentence
+                    if classify_error(e) in ("auth", "model") or attempt >= LLM_BACKOFF_RETRIES:
+                        problems.append(describe_failure(cfg["provider"], e))
+                        break
+                    time.sleep(self.backoff_base * (2**attempt))
+                    attempt += 1
+        raise LLMUnavailable("Semua penyedia gagal:\n- " + "\n- ".join(problems))
 
     def route_model_for_specialization(self, task_or_module: str) -> dict[str, Any]:
         """Dynamic specialization auto-router (Instruction 4):
@@ -679,6 +816,47 @@ class LLMRouter:
             "badge": badge,
             "badge_simple": badge_simple,
         }
+
+
+    def live_health(self, force: bool = False, ttl_s: float = 30.0) -> dict[str, Any]:
+        """Ping every provider that has a key with a 1-token request (in parallel, cached) and report what really works."""
+        cached = getattr(self, "_health_cache", None)
+        if cached and not force and time.monotonic() - cached[0] < ttl_s:
+            return cached[1]
+
+        def ping(pid: str) -> dict[str, Any]:
+            label = PROVIDER_CATALOG[pid]["label"]
+            started = time.monotonic()
+            try:
+                model = self.create_chat_model(pid, self._default_model(pid), 0.0, timeout=8.0)
+                model.invoke("ping")
+                return {"id": pid, "label": label, "has_key": True, "ok": True, "latency_ms": int((time.monotonic() - started) * 1000), "message": "Terhubung"}
+            except Exception as e:
+                return {"id": pid, "label": label, "has_key": True, "ok": False, "latency_ms": None, "message": describe_failure(pid, e)}
+
+        ids = [p for p in PROVIDER_CATALOG if p != "ollama" and self.provider_ready(p)]
+        results: list[dict[str, Any]] = []
+        if ids:
+            with ThreadPoolExecutor(max_workers=min(4, len(ids))) as pool:
+                results = list(pool.map(ping, ids))
+        if self.ollama_up():
+            results.append({"id": "ollama", "label": PROVIDER_CATALOG["ollama"]["label"], "has_key": True, "ok": True, "latency_ms": None, "message": "Ollama lokal siap"})
+        for pid in PROVIDER_CATALOG:
+            if pid != "ollama" and pid not in ids:
+                results.append({"id": pid, "label": PROVIDER_CATALOG[pid]["label"], "has_key": False, "ok": False, "latency_ms": None, "message": "Belum ada kunci API"})
+        good = [r for r in results if r["ok"]]
+        if good:
+            badge = f"🟢 {good[0]['label']} Terhubung" if len(good) == 1 else f"🟢 {good[0]['label']} +{len(good) - 1} cadangan"
+        elif any(r["has_key"] for r in results):
+            badge = "🟠 Kunci ada tapi tidak bisa dipakai"
+        else:
+            badge = "🔴 Perlu API Key"
+        out = {"ok": bool(good), "active": good[0]["id"] if good else None, "badge": badge, "providers": results}
+        self._health_cache = (time.monotonic(), out)
+        return out
+
+    def invalidate_health(self) -> None:
+        self._health_cache = None
 
 
 # Global router singleton
