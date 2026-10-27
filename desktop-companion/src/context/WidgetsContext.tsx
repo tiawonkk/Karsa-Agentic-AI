@@ -1,9 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-export type WidgetId = "pomodoro" | "water" | "todo" | "finance" | "media" | "chat" | "notebook" | "approvals" | "today";
+export type WidgetId = "pomodoro" | "water" | "todo" | "finance" | "media" | "chat" | "shelf" | "notebook" | "approvals" | "today";
 export type WidgetSize = "S" | "M" | "L";
 
-export const WIDGET_IDS: WidgetId[] = ["pomodoro", "water", "todo", "finance", "media", "chat", "notebook", "approvals", "today"];
+export const WIDGET_IDS: WidgetId[] = ["pomodoro", "water", "todo", "finance", "media", "chat", "notebook", "approvals", "today", "shelf"];
 
 /** Preset sizes: S = nano pill, M = compact card, L = expanded view. */
 export const SIZE_DIMS: Record<WidgetSize, { w: number; h: number }> = {
@@ -52,6 +52,7 @@ const defaults = (): WidgetMap => {
     finance: base("M", 3),
     media: base("M", 4),
     chat: base("L", 5),
+    shelf: base("M", 9),
     // heavy modules start as floating windows (too wide for the 275px dock); Hari Ini opens in the dock
     notebook: { ...base("L", 6), docked: false, custom: { w: 420, h: 480 } },
     approvals: { ...base("L", 7), docked: false, custom: { w: 360, h: 480 } },

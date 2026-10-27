@@ -293,7 +293,7 @@ export const NotchIsland: React.FC = () => {
           triggerHardwareToast({
             category: "bluetooth",
             title: d.device || "Bluetooth Device",
-            subtitle: d.connected ? "Connected" : "Disconnected",
+            subtitle: d.connected ? (typeof d.battery_percent === "number" ? `Tersambung · baterai ${d.battery_percent}%` : "Tersambung") : "Terputus",
           });
         } catch (_) {}
       });

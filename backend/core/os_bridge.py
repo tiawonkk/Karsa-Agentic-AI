@@ -215,40 +215,49 @@ def get_battery_status() -> Dict[str, Any]:
 # 6. Bluetooth Devices
 # ---------------------------------------------------------------------------
 
-def get_bluetooth_devices() -> List[Dict[str, Any]]:
-    """Query currently connected / OK Bluetooth devices on Windows."""
+_BT_NOISE = ("enumerator", "adapter", "radio", "rfcomm", "transport", "generic bluetooth", "wireless bluetooth", "avrcp", "le generic", "service discovery")
+
+
+def parse_bluetooth_json(out: str) -> List[Dict[str, Any]]:
+    """PowerShell JSON -> [{name, connected, battery_percent|None}]. Adapters and protocol entries are dropped."""
+    out = (out or "").strip()
+    if not out:
+        return []
     try:
-        ps_cmd = (
-            "Get-PnpDevice -Class Bluetooth -Status OK | "
-            "Select-Object FriendlyName, InstanceId | ConvertTo-Json -Compress"
-        )
+        data = json.loads(out)
+    except ValueError:
+        return []
+    items = [data] if isinstance(data, dict) else data if isinstance(data, list) else []
+    results: List[Dict[str, Any]] = []
+    seen = set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        name = str(it.get("FriendlyName") or "").strip()
+        if not name or any(n in name.lower() for n in _BT_NOISE) or name in seen:
+            continue
+        seen.add(name)
+        batt = it.get("Battery")
+        battery = int(batt) if isinstance(batt, (int, float)) and 0 <= int(batt) <= 100 else None
+        results.append({"name": name, "connected": True, "battery_percent": battery})
+    return results
+
+
+def get_bluetooth_devices() -> List[Dict[str, Any]]:
+    """Connected Bluetooth devices on Windows. `battery_percent` is what Windows reports (DEVPKEY battery) or None:
+    never an estimate."""
+    ps_cmd = (
+        "Get-PnpDevice -Class Bluetooth -Status OK | ForEach-Object { "
+        "$b = (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName '{104EA319-6EE2-4701-BD47-8DDBF425BBAA} 2' -ErrorAction SilentlyContinue).Data; "
+        "[pscustomobject]@{ FriendlyName = $_.FriendlyName; Battery = $b } } | ConvertTo-Json -Compress"
+    )
+    try:
         out = subprocess.check_output(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
             text=True,
-            timeout=3,
-        ).strip()
-
-        if not out:
-            return []
-
-        data = json.loads(out)
-        if isinstance(data, dict):
-            items = [data]
-        elif isinstance(data, list):
-            items = data
-        else:
-            items = []
-
-        results = []
-        for it in items:
-            name = it.get("FriendlyName", "")
-            if name:
-                results.append({
-                    "name": name,
-                    "connected": True,
-                    "battery_percent": 70, # Default estimate for active Bluetooth headphones
-                })
-        return results
+            timeout=6,
+        )
+        return parse_bluetooth_json(out)
     except Exception as e:
         logger.warning(f"Failed to query Bluetooth devices: {e}")
         return []

@@ -17,6 +17,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from backend.core import shelf
 from backend.core.config import ENV_FILE_PATH, settings
 from backend.core.council import build_members, run_council
 from backend.core.database import (
@@ -1476,9 +1477,44 @@ def reset_hydration_today_endpoint() -> dict[str, Any]:
 
 
 @app.get("/api/v1/shelf/files")
-def list_shelf_files_endpoint(limit: int = 30) -> dict[str, Any]:
-    files = list_shelf_files(limit=limit)
-    return {"files": files}
+def list_shelf_files_endpoint(limit: int = 60) -> dict[str, Any]:
+    return {"files": shelf.list_files(limit=limit)}
+
+
+def _shelf_error(e: "shelf.ShelfError") -> HTTPException:
+    status = {"not_found": 404, "too_large": 413, "full": 409, "unsupported": 415, "empty": 422}.get(e.code, 400)
+    return HTTPException(status_code=status, detail=str(e))
+
+
+@app.post("/api/v1/shelf/upload")
+async def upload_shelf_file_endpoint(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Drop any file onto the tray: a real copy is kept in ~/.karsa/uploads/shelf until the user removes it."""
+    data = await file.read()
+    try:
+        return {"status": "added", "file": shelf.add_bytes(file.filename or "file", data)}
+    except shelf.ShelfError as e:
+        raise _shelf_error(e)
+
+
+@app.get("/api/v1/shelf/files/{shelf_id}/download")
+def download_shelf_file_endpoint(shelf_id: int):
+    """The stored file itself (so it can be dragged out to another app or saved)."""
+    from fastapi.responses import FileResponse
+
+    try:
+        path, name = shelf.file_path_of(shelf_id)
+    except shelf.ShelfError as e:
+        raise _shelf_error(e)
+    return FileResponse(path, filename=name)
+
+
+@app.get("/api/v1/shelf/files/{shelf_id}/text")
+def shelf_file_text_endpoint(shelf_id: int) -> dict[str, Any]:
+    """Readable text of a shelf file, for handing it to the AI agent."""
+    try:
+        return shelf.extract_text(shelf_id)
+    except shelf.ShelfError as e:
+        raise _shelf_error(e)
 
 
 @app.post("/api/v1/shelf/files")
@@ -1493,8 +1529,10 @@ def add_shelf_file_endpoint(req: ShelfFileAddRequest) -> dict[str, Any]:
 
 @app.delete("/api/v1/shelf/files/{shelf_id}")
 def delete_shelf_file_endpoint(shelf_id: int) -> dict[str, Any]:
-    deleted = remove_shelf_file(shelf_id)
-    return {"status": "deleted" if deleted else "not_found", "id": shelf_id}
+    deleted = shelf.remove(shelf_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="File tidak ada di laci.")
+    return {"status": "deleted", "id": shelf_id}
 
 
 # ---------------------------------------------------------------------------
@@ -1598,6 +1636,8 @@ async def system_osd_event_stream(request: Request) -> EventSourceResponse:
         last_vol = get_master_volume().get("level")
         last_mute = get_master_volume().get("muted")
         last_pressed = get_pressed_keys() if settings.fkey_osd else set()
+        last_bright = (await asyncio.to_thread(get_screen_brightness)).get("level")
+        last_bt: dict[str, int | None] | None = None  # name -> battery; None until the first probe has run
         tick = 0
 
         while True:
@@ -1668,6 +1708,26 @@ async def system_osd_event_stream(request: Request) -> EventSourceResponse:
                         "muted": curr_mute,
                     }),
                 }
+
+            # 4. Brightness (WMI is slow: about once a second, off the event loop)
+            if tick % 18 == 0:
+                bright = (await asyncio.to_thread(get_screen_brightness)).get("level")
+                if bright != last_bright:
+                    last_bright = bright
+                    yield {"event": "osd://brightness", "data": json.dumps({"level": bright})}
+
+            # 5. Bluetooth devices connecting / disconnecting (PowerShell: every ~8 s, off the event loop)
+            if tick % 132 == 0:
+                devices = await asyncio.to_thread(get_bluetooth_devices)
+                now_bt = {d["name"]: d.get("battery_percent") for d in devices}
+                if last_bt is not None:
+                    for name, batt in now_bt.items():
+                        if name not in last_bt:
+                            yield {"event": "osd://bluetooth", "data": json.dumps({"device": name, "connected": True, "battery_percent": batt})}
+                    for name in last_bt:
+                        if name not in now_bt:
+                            yield {"event": "osd://bluetooth", "data": json.dumps({"device": name, "connected": False, "battery_percent": None})}
+                last_bt = now_bt
 
     return EventSourceResponse(event_generator())
 

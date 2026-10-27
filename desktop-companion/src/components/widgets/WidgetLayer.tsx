@@ -1,5 +1,5 @@
 import React from "react";
-import { BookOpen, CheckSquare, MessageCircle, Music2, ShieldCheck, Sun, Timer, Wallet, Droplet } from "lucide-react";
+import { BookOpen, CheckSquare, Inbox, MessageCircle, Music2, ShieldCheck, Sun, Timer, Wallet, Droplet } from "lucide-react";
 import { WidgetId, WidgetSize, useWidgets } from "../../context/WidgetsContext";
 import { WidgetContainer } from "./ResizableWidget";
 import { PomodoroBody } from "./PomodoroWidget";
@@ -9,6 +9,7 @@ import { FinanceBody } from "./FinanceWidget";
 import { MediaBody } from "./MediaWidget";
 import { ChatBody, ChatBridge } from "./ChatWidget";
 import { NotebookBody } from "./NotebookWidget";
+import { ShelfBody } from "./ShelfWidget";
 import { ApprovalsBody } from "./ApprovalsWidget";
 import { TodayBody } from "./TodayWidget";
 import { SlideErrorBoundary } from "../SlideErrorBoundary";
@@ -30,6 +31,7 @@ export const WIDGET_DEFS: Record<WidgetId, WidgetDef> = {
   finance: { title: "Finance", icon: <Wallet className={`${ic} text-amber-500`} />, launcherIcon: <Wallet className="w-4 h-4" />, accent: "#f59e0b" },
   media: { title: "Media", icon: <Music2 className={`${ic} text-orange-500`} />, launcherIcon: <Music2 className="w-4 h-4" />, accent: "#f97316" },
   chat: { title: "AI Chat", icon: <MessageCircle className={`${ic} text-indigo-500`} />, launcherIcon: <MessageCircle className="w-4 h-4" />, accent: "#6366f1" },
+  shelf: { title: "Laci File", icon: <Inbox className={`${ic} text-amber-500`} />, launcherIcon: <Inbox className="w-4 h-4" />, accent: "#d97706" },
   notebook: { title: "Notebook", icon: <BookOpen className={`${ic} text-violet-500`} />, launcherIcon: <BookOpen className="w-4 h-4" />, accent: "#8b5cf6" },
   approvals: { title: "Approvals", icon: <ShieldCheck className={`${ic} text-teal-500`} />, launcherIcon: <ShieldCheck className="w-4 h-4" />, accent: "#14b8a6" },
   today: { title: "Hari Ini", icon: <Sun className={`${ic} text-yellow-500`} />, launcherIcon: <Sun className="w-4 h-4" />, accent: "#eab308" },
@@ -57,6 +59,8 @@ export const WidgetView: React.FC<{ id: WidgetId } & RenderCtx> = ({ id, chat, o
         return <MediaBody size={size} />;
       case "chat":
         return <ChatBody size={size} chat={chat} onOpenSettings={onOpenSettings} />;
+      case "shelf":
+        return <ShelfBody size={size} chat={chat} />;
       case "notebook":
         return <NotebookBody size={size} />;
       case "approvals":

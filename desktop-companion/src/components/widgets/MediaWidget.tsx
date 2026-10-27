@@ -91,9 +91,9 @@ export const MediaBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
   const [lyricsState, setLyricsState] = useState<"idle" | "loading" | "none">("idle");
   const activeRef = useRef<HTMLDivElement | null>(null);
 
-  // Lyrics (LRCLIB) only for the L layout
+  // Synced lyrics (LRCLIB) for M (current line) and L (full scroll)
   useEffect(() => {
-    if (size !== "L" || !m.active || !m.title) {
+    if (size === "S" || !m.active || !m.title) {
       setLyrics([]);
       setPlain([]);
       return;
@@ -214,6 +214,9 @@ export const MediaBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
     return (
       <div className="h-full flex flex-col justify-between">
         {info}
+        <div className="text-center text-[11.5px] font-medium text-ink truncate min-h-[16px]" aria-live="off">
+          {!m.active ? "" : lyricsState === "loading" ? "Memuat lirik…" : currentIdx >= 0 ? lyrics[currentIdx].text || "♪" : lyrics.length > 0 ? "♪" : lyricsState === "none" ? "Lirik tidak ditemukan" : ""}
+        </div>
         {progress}
         {controls}
       </div>
