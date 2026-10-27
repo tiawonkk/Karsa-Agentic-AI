@@ -45,8 +45,8 @@ export const PomodoroBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
   }
 
   const ring = (
-    <div className="relative w-[58px] h-[58px] flex-shrink-0 flex items-center justify-center">
-      <svg className="w-[58px] h-[58px] -rotate-90" viewBox="0 0 36 36">
+    <div className="relative w-16 h-16 flex-shrink-0 flex items-center justify-center">
+      <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
         <path
           stroke="var(--border-subtle)"
           strokeWidth="3.4"
@@ -113,10 +113,44 @@ export const PomodoroBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
   );
 
   if (size === "M") {
+    // two compact columns, no dead space: ring | time + controls
     return (
-      <div className="h-full flex flex-col justify-between gap-2.5">
-        {mainRow}
-        {controls}
+      <div className="h-full flex items-center justify-between gap-4">
+        {ring}
+        <div className="flex-1 min-w-0 flex flex-col justify-center">
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-bold text-2xl leading-none text-ink">{formatClock(p.remainingSec)}</span>
+            <span className="text-[10px] text-ink-2 font-medium leading-tight truncate">
+              {LABEL[p.sessionType]} · {p.completed} sesi
+            </span>
+            <button
+              type="button"
+              onClick={() => pomodoro.reset()}
+              className="ml-auto w-6 h-6 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer flex-shrink-0"
+              title="Reset Waktu"
+              aria-label="Reset"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
+          </div>
+          <div className="mt-2 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => pomodoro.selectSession("short_break")}
+              className={`px-2.5 h-7 rounded-full text-xs font-semibold flex items-center gap-1 cursor-pointer ${p.sessionType === "short_break" ? "bg-accent text-white" : "bg-pill text-ink hover:brightness-110"}`}
+            >
+              <Coffee className="w-3 h-3" /> Break
+            </button>
+            {playBtn("w-11 h-7")}
+            <button
+              type="button"
+              onClick={() => pomodoro.selectSession("focus")}
+              className={`px-2.5 h-7 rounded-full text-xs font-semibold flex items-center gap-1 cursor-pointer ${p.sessionType === "focus" ? "bg-accent text-white" : "bg-pill text-ink hover:brightness-110"}`}
+            >
+              <Target className="w-3 h-3" /> Focus
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

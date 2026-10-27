@@ -156,7 +156,7 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({ id, title, ico
           onPointerDown={startDrag}
           onDoubleClick={hideOnDoubleClick}
           title={st.docked ? undefined : "Geser ke tepi kiri layar, atau klik dua kali, untuk menyembunyikan"}
-          className={`flex items-center justify-between gap-1 px-3 h-[34px] flex-shrink-0 border-b border-subtle ${
+          className={`flex items-center justify-between gap-1 px-3 h-[30px] flex-shrink-0 border-b border-subtle ${
             st.docked ? "" : "cursor-grab active:cursor-grabbing"
           }`}
         >
@@ -188,7 +188,7 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({ id, title, ico
         </div>
       )}
 
-      <div className={`flex-1 min-h-0 min-w-0 ${size === "S" ? "px-3 flex items-center" : "p-3.5"}`}>
+      <div className={`flex-1 min-h-0 min-w-0 ${size === "S" ? "px-3 flex items-center" : "p-3"}`}>
         {children(size)}
       </div>
 

@@ -7,18 +7,18 @@ export const WIDGET_IDS: WidgetId[] = ["pomodoro", "water", "todo", "finance", "
 
 /** Preset sizes: S = nano pill, M = compact card, L = expanded view. */
 export const SIZE_DIMS: Record<WidgetSize, { w: number; h: number }> = {
-  S: { w: 150, h: 40 },
-  M: { w: 250, h: 155 },
-  L: { w: 310, h: 280 },
+  S: { w: 140, h: 36 },
+  M: { w: 230, h: 125 },
+  L: { w: 280, h: 210 },
 };
 
-export const MIN_DIMS = { w: 150, h: 40 };
+export const MIN_DIMS = { w: 140, h: 36 };
 export const MAX_DIMS = { w: 520, h: 560 };
 
 /** Which layout a free-form (drag-resized) widget should render. */
 export const sizeFromDims = (w: number, h: number): WidgetSize => {
-  if (h < 90 || w < 200) return "S";
-  if (h >= 230 || w >= 300) return "L";
+  if (h < 80 || w < 190) return "S";
+  if (h >= 190 || w >= 270) return "L";
   return "M";
 };
 

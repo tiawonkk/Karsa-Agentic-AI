@@ -8,6 +8,8 @@ interface NotchShellProps {
   isDark?: boolean;
   /** Sleeping: the colour glow stops drifting (Zero-Heat) */
   calm?: boolean;
+  /** Expanded with the lyrics panel open: 440px instead of 380px */
+  wide?: boolean;
   onClick?: () => void;
   children: React.ReactNode;
 }
@@ -23,25 +25,25 @@ const springPhysics = {
  * NotchShell: the top micro-notch. Every colour comes from the theme variables (--bg-glass, --border-subtle,
  * --text-primary, --shadow-soft), so the Light/Dark toggle repaints it instantly. The concave ears use the same
  * fill as the body so the island flows out of the screen edge.
- * Sizes: idle/compact 210x52, peek 290x54, OSD toast 265x40, expanded bar 560x262.
+ * Sizes: idle/compact 150x30, peek 230x36, OSD toast 265x40, expanded bar 380x148 (440 with lyrics).
  */
-export const NotchShell: React.FC<NotchShellProps> = ({ mode, calm = false, onClick, children }) => {
-  let widthClass = "w-[210px]";
-  let heightClass = "h-[52px]";
-  let radiusClass = "rounded-b-[26px]";
+export const NotchShell: React.FC<NotchShellProps> = ({ mode, calm = false, wide = false, onClick, children }) => {
+  let widthClass = "w-[150px]";
+  let heightClass = "h-[30px]";
+  let radiusClass = "rounded-b-[16px]";
 
   if (mode === "PEEK") {
-    widthClass = "w-[290px]";
-    heightClass = "h-[54px]";
-    radiusClass = "rounded-b-[26px]";
+    widthClass = "w-[230px]";
+    heightClass = "h-[36px]";
+    radiusClass = "rounded-b-[18px]";
   } else if (mode === "SYSTEM_TOAST") {
     widthClass = "w-[265px]";
     heightClass = "h-[40px]";
     radiusClass = "rounded-b-[20px]";
   } else if (mode === "EXPANDED") {
-    widthClass = "w-[560px]";
-    heightClass = "h-[262px]";
-    radiusClass = "rounded-b-[34px]";
+    widthClass = wide ? "w-[440px]" : "w-[380px]";
+    heightClass = "h-[148px]";
+    radiusClass = "rounded-b-[24px]";
   }
 
   const ear = { fill: "var(--island-bg)" } as React.CSSProperties;
@@ -94,10 +96,10 @@ export const NotchShell: React.FC<NotchShellProps> = ({ mode, calm = false, onCl
       <div
         className={`relative w-full h-full overflow-hidden flex flex-col justify-between ${
           mode === "IDLE_EYES" || mode === "COMPACT_PILL" || mode === "PEEK"
-            ? "px-3 py-1 justify-center"
+            ? "px-2 py-0 justify-center"
             : mode === "SYSTEM_TOAST"
             ? "px-3.5 py-1.5 justify-center"
-            : "px-5 pt-2.5 pb-2"
+            : "px-3.5 py-2.5"
         }`}
       >
         {children}

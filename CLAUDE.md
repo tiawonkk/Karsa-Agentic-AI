@@ -70,7 +70,7 @@ Request flow: `api/main.py` → supervisor graph → specialist module sub-graph
 
 ### UI zones (session #57)
 
-- **Top Island = daily modules only.** `IslandDeck.tsx` holds the slides (Omni `NotchBar`, Pomodoro, Media+lyrics, Water, Todo, Shelf, Lainnya) and reuses the widget `*Body` components at size M; `Widget` pulls one out as a floating S/M/L widget. Expanded island is 560x262 (`NotchShell`).
+- **Top Island = daily modules only, no chat.** `IslandDeck.tsx` holds exactly 5 slides (Pomodoro, Media+lyrics, Water, Todo, Shelf) and reuses the widget `*Body` components at size M (keep M layouts horizontal, the card has ~73px of content height); `Widget` pulls one out as a floating S/M/L widget (140x36 / 230x125 / 280x210). `NotchShell` sizes: idle 150x30, expanded 380x148 (440 on the Music slide). Never put chat input, @Directive chips or the Full App button in the Island.
 - **Right dock = Agentic AI only.** `RightAgenticDock.tsx` (chat + HITL banner + automation cards) and `FullAppStudioModal.tsx` (Alt+Shift+K, state in `stores/studioMode.ts`). The automation list and panels live in `components/studio/AutomationPanel.tsx`; add new automations there. Do not put daily widgets in the dock; no widget is docked any more (`docked` is always false).
 - Style with `.karsa-surface karsa-panel` (28px outer), `.karsa-nested` (20px inner card), `.karsa-grad` (primary), `Stepper` for pipelines. Tokens: `--island-bg`, `--bg-card`, `--card-shadow`.
 

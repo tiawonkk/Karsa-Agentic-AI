@@ -6,7 +6,6 @@ import { NotchShell, ShellMode } from "./NotchShell";
 import { IdleEyesView } from "./IdleEyesView";
 import { CompactPillView } from "./CompactPillView";
 import { SystemToastView, SystemToastData } from "./SystemToastView";
-import { NotchBar } from "./NotchBar";
 import { FloatingWidgets } from "./widgets/WidgetLayer";
 import { ChatBridge } from "./widgets/ChatWidget";
 import { useWaterReminder } from "./widgets/WaterWidget";
@@ -41,6 +40,7 @@ export const NotchIsland: React.FC = () => {
   const prevModeRef = useRef<ShellMode>("IDLE_EYES");
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [islandWide, setIslandWide] = useState(false);
   const [isSleeping, setIsSleeping] = useState(false);
   const [activePopover, setActivePopover] = useState<ActivePopover>(null);
   const [directivePopup, setDirectivePopup] = useState<{
@@ -600,7 +600,7 @@ export const NotchIsland: React.FC = () => {
       }}
     >
       {/* Dynamic Island V3 NotchShell Chassis with S-Curve Ears */}
-      <NotchShell mode={shellMode} isDark={isDark} calm={isSleeping}>
+      <NotchShell mode={shellMode} isDark={isDark} calm={isSleeping} wide={islandWide}>
         {/* Mode 1: AI Glowing Eyes (190px x 38px) */}
         {shellMode === "IDLE_EYES" && (
           <div
@@ -673,27 +673,8 @@ export const NotchIsland: React.FC = () => {
           />
         )}
 
-        {/* Mode 4: Expanded island = swipeable deck of daily modules (slide 0 is the Omni bar) */}
-        {shellMode === "EXPANDED" && (
-          <IslandDeck
-            chat={chat}
-            onCollapse={() => setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL")}
-            omni={
-              <NotchBar
-                isDark={isDark}
-                mascotColor={mascotColor}
-                eyeColor={eyeColor}
-                outfit={outfit}
-                isSleeping={isSleeping}
-                focusTrigger={focusSearchTrigger}
-                onSubmit={handleSubmit}
-                onCollapse={() => setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL")}
-                onOpenWardrobe={() => setActivePopover("WARDROBE")}
-                onOpenStage={() => setStageOpen(true)}
-              />
-            }
-          />
-        )}
+        {/* Mode 4: Expanded island = the 5 daily utility slides only (chat and the AI automations live in the right dock) */}
+        {shellMode === "EXPANDED" && <IslandDeck chat={chat} onWide={setIslandWide} />}
       </NotchShell>
 
       {/* Right-side mini screen + floating widgets (unmounted while asleep: Zero-Heat) */}

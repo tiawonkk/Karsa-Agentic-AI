@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, ExternalLink, Maximize2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { WidgetId, useWidgets } from "../context/WidgetsContext";
 import { ThemeToggle, useTheme } from "../context/ThemeContext";
-import { WIDGET_DEFS } from "./widgets/WidgetLayer";
 import { PomodoroBody } from "./widgets/PomodoroWidget";
 import { MediaBody } from "./widgets/MediaWidget";
 import { WaterBody } from "./widgets/WaterWidget";
@@ -11,9 +10,8 @@ import { TodoBody } from "./widgets/TodoWidget";
 import { ShelfBody } from "./widgets/ShelfWidget";
 import { ChatBridge } from "./widgets/ChatWidget";
 import { SlideErrorBoundary } from "./SlideErrorBoundary";
-import { openStudio } from "../stores/studioMode";
 
-type SlideId = "omni" | "pomodoro" | "media" | "water" | "todo" | "shelf" | "more";
+type SlideId = "pomodoro" | "media" | "water" | "todo" | "shelf";
 
 interface Slide {
   id: SlideId;
@@ -23,16 +21,12 @@ interface Slide {
 }
 
 const SLIDES: Slide[] = [
-  { id: "omni", title: "Karsa" },
-  { id: "pomodoro", title: "Pomodoro Focus", widget: "pomodoro" },
+  { id: "pomodoro", title: "Pomodoro", widget: "pomodoro" },
   { id: "media", title: "Musik", widget: "media" },
   { id: "water", title: "Minum Air", widget: "water" },
   { id: "todo", title: "Todo Cepat", widget: "todo" },
   { id: "shelf", title: "Clip Sementara", widget: "shelf" },
-  { id: "more", title: "Lainnya" },
 ];
-
-const MORE: WidgetId[] = ["today", "finance", "chat", "approvals", "notebook", "studio"];
 
 /** Five white bars that dance (CSS only, so it costs nothing while the island is idle). */
 export const Waveform: React.FC<{ active?: boolean }> = ({ active = true }) => (
@@ -60,25 +54,23 @@ const DayRing: React.FC<{ now: Date }> = ({ now }) => {
   );
 };
 
-const stamp = (d: Date) =>
-  `${d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).replace(",", "")} ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+const stamp = (d: Date) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
 interface IslandDeckProps {
-  /** Slide 0: the Omni command bar */
-  omni: React.ReactNode;
   chat: ChatBridge;
-  onCollapse: () => void;
+  /** The Music slide needs 440px for its lyrics panel; every other slide stays at 380px */
+  onWide: (wide: boolean) => void;
 }
 
 /**
  * IslandDeck: the expanded Dynamic Island. The daily micro-utilities (Pomodoro, Music + lyrics, Water, Todo, File Shelf)
  * are swipeable slides here; each can be pulled out as a floating S/M/L widget. The AI automations live in the right dock.
  */
-export const IslandDeck: React.FC<IslandDeckProps> = ({ omni, chat, onCollapse }) => {
+export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide }) => {
   const [index, setIndex] = useState(0);
   const [dir, setDir] = useState(1);
   const [now, setNow] = useState(() => new Date());
-  const { openWidget, setSize, toggleOpen } = useWidgets();
+  const { openWidget, setSize } = useWidgets();
   const { isDark } = useTheme();
 
   useEffect(() => {
@@ -105,6 +97,10 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ omni, chat, onCollapse }
   }, [go]);
 
   const slide = SLIDES[index];
+  useEffect(() => {
+    onWide(slide.id === "media");
+    return () => onWide(false);
+  }, [slide.id, onWide]);
 
   const pullOut = (id: WidgetId) => {
     setSize(id, "M");
@@ -113,8 +109,6 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ omni, chat, onCollapse }
 
   const body = (): React.ReactNode => {
     switch (slide.id) {
-      case "omni":
-        return omni;
       case "pomodoro":
         return <PomodoroBody size="M" />;
       case "media":
@@ -125,61 +119,31 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ omni, chat, onCollapse }
         return <TodoBody size="M" />;
       case "shelf":
         return <ShelfBody size="M" chat={chat} />;
-      case "more":
-        return (
-          <div className="grid grid-cols-3 gap-2 h-full content-center">
-            {MORE.map((id) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => toggleOpen(id)}
-                className="karsa-nested h-14 flex flex-col items-center justify-center gap-1 text-[10.5px] font-semibold text-ink cursor-pointer active:scale-95 transition-transform"
-              >
-                <span style={{ color: WIDGET_DEFS[id].accent }}>{WIDGET_DEFS[id].launcherIcon}</span>
-                {WIDGET_DEFS[id].title}
-              </button>
-            ))}
-          </div>
-        );
     }
   };
 
   return (
-    <div className="w-full h-full flex flex-col gap-1 text-ink">
-      {slide.id !== "omni" && (
-        <div className="flex items-center justify-between gap-2 flex-shrink-0 h-6">
-          <span className="text-[12px] font-semibold tracking-tight truncate w-[34%]">{slide.title}</span>
-          <span className="flex items-center gap-1.5 text-[10.5px] font-mono text-ink-2 whitespace-nowrap">
-            <DayRing now={now} />
-            {stamp(now)}
-          </span>
-          <span className="flex items-center justify-end gap-1.5 w-[34%] text-ink-2">
-            <Waveform />
-            <ThemeToggle />
-            {slide.widget && (
-              <button
-                type="button"
-                onClick={() => pullOut(slide.widget as WidgetId)}
-                className="h-6 px-2 rounded-full karsa-grad text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                title="Tarik keluar jadi widget mengambang (S / M / L)"
-                aria-label={`${slide.title} sebagai widget`}
-              >
-                <ExternalLink className="w-3 h-3" />
-                Widget
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => openStudio()}
-              className="w-6 h-6 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer"
-              title="Mode Aplikasi Besar (Alt+Shift+K)"
-              aria-label="Mode Aplikasi Besar"
-            >
-              <Maximize2 className="w-3 h-3" />
-            </button>
-          </span>
-        </div>
-      )}
+    <div className="relative w-full h-full flex flex-col gap-1.5 text-ink">
+      <div className="flex items-center justify-between gap-2 flex-shrink-0 h-6 text-[11px]">
+        <span className="font-semibold tracking-tight truncate w-[34%]">{slide.title}</span>
+        <span className="flex items-center gap-1.5 font-mono text-ink-2 whitespace-nowrap">
+          <DayRing now={now} />
+          {stamp(now)}
+        </span>
+        <span className="flex items-center justify-end gap-1.5 w-[34%] text-ink-2">
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={() => pullOut(slide.widget as WidgetId)}
+            className="h-5 px-2 rounded-full karsa-grad text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+            title="Tarik keluar jadi widget mengambang (S / M / L)"
+            aria-label={`${slide.title} sebagai widget`}
+          >
+            <ExternalLink className="w-3 h-3" />
+            Widget
+          </button>
+        </span>
+      </div>
 
       <div className="relative flex-1 min-h-0">
         <AnimatePresence mode="wait" initial={false} custom={dir}>
@@ -190,7 +154,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ omni, chat, onCollapse }
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: dir * -36 }}
             transition={{ type: "spring", stiffness: 420, damping: 36, mass: 0.7 }}
-            className={`absolute inset-0 ${slide.id === "omni" ? "" : "karsa-nested px-3 py-2 overflow-hidden"}`}
+            className="absolute inset-0 karsa-nested !rounded-[18px] px-3 py-2 overflow-hidden"
           >
             <SlideErrorBoundary slideName={slide.title} isDark={isDark}>
               {body()}
@@ -216,28 +180,20 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ omni, chat, onCollapse }
         </button>
       </div>
 
-      <div className="flex items-center justify-center gap-1.5 h-3.5 flex-shrink-0">
-        {SLIDES.map((s, i) => (
+      <div className="absolute left-0 right-0 bottom-[3px] flex items-center justify-center gap-1.5 pointer-events-none">
+        {SLIDES.map((sl, i) => (
           <button
-            key={s.id}
+            key={sl.id}
             type="button"
             onClick={() => {
               setDir(i > index ? 1 : -1);
               setIndex(i);
             }}
-            aria-label={s.title}
+            aria-label={sl.title}
             aria-current={i === index}
-            className={`h-1.5 rounded-full transition-all cursor-pointer ${i === index ? "w-4 bg-ink" : "w-1.5 bg-ink-muted/50"}`}
+            className={`pointer-events-auto h-1 rounded-full transition-all cursor-pointer ${i === index ? "w-3.5 bg-ink" : "w-1 bg-ink-muted/50"}`}
           />
         ))}
-        <button
-          type="button"
-          onClick={onCollapse}
-          className="absolute right-3.5 bottom-1.5 text-[9px] text-ink-muted hover:text-ink cursor-pointer"
-          title="Kecilkan (Esc)"
-        >
-          Esc
-        </button>
       </div>
     </div>
   );

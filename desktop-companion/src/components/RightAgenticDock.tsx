@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ArrowLeft, ChevronRight, Maximize2, MessageCircle, Palette, Settings, ShieldCheck, Sparkles } from "lucide-react";
-import { WIDGET_IDS, useWidgets } from "../context/WidgetsContext";
+import { WIDGET_IDS, WidgetId, useWidgets } from "../context/WidgetsContext";
+import { WIDGET_DEFS } from "./widgets/WidgetLayer";
 import { ThemeToggle } from "../context/ThemeContext";
 import { useSystemStatus } from "../context/SystemStatusContext";
 import { ChatBody, ChatBridge } from "./widgets/ChatWidget";
@@ -22,6 +23,7 @@ interface RightAgenticDockProps {
   isSleeping: boolean;
 }
 
+const LAUNCH: WidgetId[] = ["today", "finance", "approvals", "notebook"];
 const COLLAPSED_KEY = "karsa_dock_collapsed";
 type Tab = "chat" | "auto";
 
@@ -162,6 +164,22 @@ export const RightAgenticDock: React.FC<RightAgenticDockProps> = ({ chat, onOpen
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="px-3.5 pb-2 flex items-center justify-between gap-1 flex-shrink-0">
+          {LAUNCH.map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => toggleOpen(id)}
+              title={WIDGET_DEFS[id].title}
+              aria-label={WIDGET_DEFS[id].title}
+              className="h-6 px-1.5 min-w-0 rounded-full bg-pill text-ink-2 hover:text-ink inline-flex items-center gap-0.5 text-[9.5px] font-semibold cursor-pointer whitespace-nowrap"
+            >
+              <span style={{ color: WIDGET_DEFS[id].accent }}>{WIDGET_DEFS[id].icon}</span>
+              <span className="truncate">{WIDGET_DEFS[id].title.replace("Hari Ini", "Hari ini")}</span>
+            </button>
+          ))}
         </div>
 
         <div className="flex-1 min-h-0 px-3.5 pb-3.5 flex flex-col gap-2">

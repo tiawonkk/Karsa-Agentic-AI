@@ -30,7 +30,7 @@ export const CompactPillView: React.FC<CompactPillViewProps> = ({
   }, []);
 
   return (
-    <div className="w-full h-full flex items-center justify-between px-3 cursor-pointer select-none">
+    <div className="w-full h-full flex items-center justify-between px-2.5 cursor-pointer select-none">
       {/* Left: Status Ring (#10B981 or Amber if Pending Approval) */}
       <div className="flex items-center gap-1.5">
         <div
@@ -52,7 +52,7 @@ export const CompactPillView: React.FC<CompactPillViewProps> = ({
       </div>
 
       {/* Center: Bold Digital Clock in JetBrains Mono (Rule 1 & 2) */}
-      <div className="font-mono font-bold text-sm tracking-tight leading-none text-[#09090B] dark:text-[#FAFAFA]">
+      <div className="font-mono font-bold text-[12px] tracking-tight leading-none text-[#09090B] dark:text-[#FAFAFA]">
         {timeStr}
       </div>
 

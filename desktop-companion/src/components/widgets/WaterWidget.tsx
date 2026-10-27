@@ -206,10 +206,12 @@ export const WaterBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
 
   if (size === "M") {
     return (
-      <div className="h-full flex flex-col justify-between gap-2">
-        {head}
-        {progress}
-        {actions}
+      <div className="h-full flex items-center gap-3">
+        <div className="flex-1 min-w-0 space-y-1.5">
+          {head}
+          {progress}
+        </div>
+        <div className="w-[52%] flex-shrink-0">{actions}</div>
       </div>
     );
   }
