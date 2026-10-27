@@ -212,7 +212,7 @@ export const MediaBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
 
   if (size === "M") {
     return (
-      <div className="h-full flex flex-col justify-center gap-2">
+      <div className="h-full flex flex-col justify-center gap-2.5">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex-1 min-w-0 flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 via-amber-400 to-rose-500 flex items-center justify-center flex-shrink-0">

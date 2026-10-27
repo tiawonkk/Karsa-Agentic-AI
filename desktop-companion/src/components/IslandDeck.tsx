@@ -165,8 +165,8 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
   };
 
   return (
-    <div className="relative w-full h-full flex flex-col gap-1 text-ink">
-      <div className="flex items-center justify-between gap-2 flex-shrink-0 h-5 text-[11px]">
+    <div className="relative w-full h-full flex flex-col gap-1.5 text-ink">
+      <div className="flex items-center justify-between gap-2 flex-shrink-0 h-5 px-1.5 text-[11px]">
         <button type="button" onClick={onCollapse} title="Kecilkan island (Esc)" aria-label="Kecilkan island" className="group/t font-semibold tracking-tight truncate w-[34%] text-left inline-flex items-center gap-1 cursor-pointer">
           <span className="truncate">{empty ? "Island" : slide.title}</span>
           <ChevronUp className="w-3 h-3 flex-shrink-0 text-ink-muted opacity-0 group-hover/t:opacity-100 transition-opacity" />
@@ -199,7 +199,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: dir * -36 }}
             transition={{ type: "spring", stiffness: 420, damping: 36, mass: 0.7 }}
-            className="absolute inset-0 karsa-nested !rounded-[18px] px-3 py-1.5 overflow-hidden"
+            className="absolute inset-0 karsa-nested !rounded-[18px] px-3.5 py-1.5 overflow-hidden"
           >
             <SlideErrorBoundary slideName={slide.title} isDark={isDark}>
               {empty ? <div className="h-full flex items-center justify-center text-[11px] text-ink-muted text-center">Semua modul sedang jadi widget mengambang. Tutup salah satu untuk menampilkannya di sini.</div> : body()}
