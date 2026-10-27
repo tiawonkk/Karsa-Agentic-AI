@@ -328,6 +328,16 @@ export const NotchIsland: React.FC = () => {
     };
   }, [shellMode, isSleeping]);
 
+  // Tray menu "Mode Tidur" (desktop shell)
+  const isSleepingRef = useRef(isSleeping);
+  isSleepingRef.current = isSleeping;
+  useEffect(() => {
+    const onToggle = () => handleSleepChange(!isSleepingRef.current);
+    window.addEventListener("karsa:toggle-sleep", onToggle);
+    return () => window.removeEventListener("karsa:toggle-sleep", onToggle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Click-outside listener & Escape shortcut
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {

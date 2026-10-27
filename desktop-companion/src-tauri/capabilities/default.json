@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Karsa window: events, window show/hide/focus and the click-through commands. The UI may be served by the local backend (release) or by Vite (dev).",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:8765/*", "http://localhost:8765/*", "http://localhost:5173/*", "http://127.0.0.1:5173/*"]
+  },
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-ignore-cursor-events"
+  ]
+}

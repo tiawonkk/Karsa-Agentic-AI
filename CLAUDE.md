@@ -60,6 +60,14 @@ Request flow: `api/main.py` → supervisor graph → specialist module sub-graph
 - **Coding module**: `datascience_code/workspace.py` (safe read of files inside the user's folder, diff, patch with `.bak`, run tests); changes and test runs always go through the HITL gate. **Research** (`research_tools.py`) returns real results or an honest error, never invented papers.
 - **`backend/api/main.py`**: one large file, no routers. Most routes live under `/api/v1/...`, and some are duplicated under `/api/...` for legacy callers. Chat is available as plain JSON (`/chat`) or as an SSE stream (`/chat/stream`). Hardware OSD events stream over SSE at `/system/osd/stream`. A few paths are declared twice (`/api/v1/tasks`, `/api/v1/tasks/{id}/complete`, `/api/v1/finance/report`). FastAPI uses the first declaration, so check which one is live before editing.
 
+### Automation, phone and desktop shell (added in sessions #52-#56)
+
+- **LLM calls** (`llm_router.py`): failures are classified (`classify_error`) and reported per provider via `LLMUnavailable`; transient errors back off (2 retries), a per-provider limiter protects free tiers, a reachable local Ollama is the last fallback. Never replace these messages with a generic one. Tests must patch `LLMRouter.ollama_up` (a real Ollama may answer) and `backend.api.automation.llm_available`.
+- **Studio** (`backend/modules/studio/`, `finance/reports.py`, `finance/news.py`, `notebook/extras.py`, `notebook/ml_export.py`, routes in `api/automation.py`, UI `widgets/StudioWidget.tsx` + `components/studio/`): every automation has an honest no-model path. `prd_app.py` writes nothing and runs nothing before the plan is approved (audit row in `hitl_approvals`, fingerprint-checked); only whitelisted commands run.
+- **File shelf** (`core/shelf.py`): real copies in `~/.karsa/uploads/shelf`, never paths from the browser.
+- **Phone** (`core/mobile.py`, `api/mobile.py`, `m.html`, `src/mobile/`): any non-loopback caller needs the pairing token for `/api/`. Run `run_karsa_phone.bat` (host 0.0.0.0) to make the laptop reachable; Settings > HP shows the QR.
+- **Desktop shell** (`desktop-companion/src-tauri/`): transparent full-screen window, click-through decided by a cursor thread from the rectangles the frontend reports (`lib/tauriBridge.ts`: elements with `pointer-events-auto` or `data-hit`). Build with `npm install` then `npm run tauri build` (needs Rust + MSVC Build Tools).
+
 ### Project principles (from docs/decision log)
 
 - **Deterministic first**: do the parsing, math and file compilation in Python before reaching for an LLM. Examples: Indonesian amounts such as "25rb" → 25000, Daily Safe Spend, Pandas profiling, and python-docx compilation. Never send raw datasets to an LLM, only compact profile metadata (< 2 KB).

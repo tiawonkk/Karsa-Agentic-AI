@@ -1,30 +1,33 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Karsa Desktop Companion",
+  "productName": "Karsa",
   "version": "0.1.0",
   "identifier": "com.karsa.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173"
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Karsa Island",
-        "width": 540,
-        "height": 460,
-        "x": null,
+        "label": "main",
+        "title": "Karsa",
+        "width": 1280,
+        "height": 800,
+        "x": 0,
         "y": 0,
-        "center": false,
         "resizable": false,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visibleOnAllWorkspaces": true,
+        "skipTaskbar": false,
+        "visible": false,
         "acceptFirstMouse": true,
-        "shadow": false
+        "shadow": false,
+        "focus": false
       }
     ],
     "security": {
@@ -33,13 +36,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "msi"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }

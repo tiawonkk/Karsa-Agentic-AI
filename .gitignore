@@ -29,3 +29,7 @@ Thumbs.db
 *.sqlite3
 *.db-journal
 storage/*.db
+
+# Tauri (Rust) build output
+desktop-companion/src-tauri/target/
+desktop-companion/src-tauri/gen/
