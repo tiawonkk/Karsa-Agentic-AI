@@ -22,13 +22,13 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, className =
     if (currentListItems.length > 0 && currentListType) {
       if (currentListType === "ol") {
         renderedElements.push(
-          <ol key={`ol-${renderedElements.length}`} className="my-1.5 space-y-1 pl-4 list-decimal text-neutral-200">
+          <ol key={`ol-${renderedElements.length}`} className="my-1.5 space-y-1 pl-4 list-decimal text-ink">
             {currentListItems}
           </ol>
         );
       } else {
         renderedElements.push(
-          <ul key={`ul-${renderedElements.length}`} className="my-1.5 space-y-1 pl-4 list-disc text-neutral-200">
+          <ul key={`ul-${renderedElements.length}`} className="my-1.5 space-y-1 pl-4 list-disc text-ink">
             {currentListItems}
           </ul>
         );
@@ -80,7 +80,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, className =
     // Check for Markdown headings
     if (line.startsWith("### ")) {
       renderedElements.push(
-        <h4 key={`h4-${idx}`} className="font-semibold text-[#FAF9F6] text-[13px] mt-2 mb-1">
+        <h4 key={`h4-${idx}`} className="font-semibold text-ink text-[13px] mt-2 mb-1">
           {renderInlineMarkdown(line.slice(4))}
         </h4>
       );
@@ -88,7 +88,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content, className =
     }
     if (line.startsWith("## ")) {
       renderedElements.push(
-        <h3 key={`h3-${idx}`} className="font-sans font-bold text-base text-slate-900 dark:text-[#FAF9F6] mt-2.5 mb-1">
+        <h3 key={`h3-${idx}`} className="font-sans font-bold text-base text-ink mt-2.5 mb-1">
           {renderInlineMarkdown(line.slice(3))}
         </h3>
       );
@@ -129,7 +129,7 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
     const token = match[0];
     if (token.startsWith("**") && token.endsWith("**")) {
       tokens.push(
-        <strong key={`b-${match.index}`} className="font-semibold text-[#FAF9F6]">
+        <strong key={`b-${match.index}`} className="font-semibold text-ink">
           {token.slice(2, -2)}
         </strong>
       );
@@ -137,7 +137,7 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
       tokens.push(
         <code
           key={`c-${match.index}`}
-          className="font-mono bg-white/10 px-1 py-0.5 rounded text-[11px] text-[#D95D39] border border-white/5"
+          className="font-mono bg-pill px-1 py-0.5 rounded text-[11px] text-accent border border-subtle"
         >
           {token.slice(1, -1)}
         </code>
@@ -147,7 +147,7 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
       (token.startsWith("_") && token.endsWith("_"))
     ) {
       tokens.push(
-        <em key={`i-${match.index}`} className="italic text-neutral-300">
+        <em key={`i-${match.index}`} className="italic text-ink-2">
           {token.slice(1, -1)}
         </em>
       );

@@ -111,12 +111,22 @@ def supervisor_triage_node(state: KarsaState) -> dict[str, Any]:
     if directive.is_directive and directive.target_module in enabled_modules:
         return {"active_module": directive.target_module}
 
+    # Chat panel mode: plain text in "Ngoding" goes to the coding module, in "Riset" to the research module
+    mode = state.get("chat_mode")
+    forced = {"code": "datascience_code", "research": "research"}.get(mode or "")
+    if forced and forced in enabled_modules and _canned_reply(last_user_msg.strip().lower()) is None:
+        return {"active_module": forced}
+
     # 1. Tier A: Deterministic Regex Match (0 Tokens)
     matched_id = match_deterministic_intent(last_user_msg, enabled_modules)
     if matched_id:
         return {"active_module": matched_id}
 
-    # 2. Tier B: Fast LLM Triage (Tier-1 Model)
+    # Greetings and "what can you do" are answered from fixed text: no triage call needed
+    if _canned_reply(last_user_msg.strip().lower()) is not None:
+        return {"active_module": None}
+
+    # 2. Tier B: Fast LLM Triage (short timeout: a slow model must never make chat feel frozen)
     modules_desc = []
     for mod_id in enabled_modules:
         m = registry.get_module(mod_id)
@@ -132,9 +142,10 @@ def supervisor_triage_node(state: KarsaState) -> dict[str, Any]:
 
     try:
         chat_model = router.get_chat_model(
-            tier="tier1_utility",
+            purpose="chat",
             module_name="supervisor",
             session_thread_id=state.get("session_thread_id"),
+            timeout=6.0,
         )
         structured_llm = chat_model.with_structured_output(RouteDecision)
         res: RouteDecision = structured_llm.invoke([
@@ -150,33 +161,87 @@ def supervisor_triage_node(state: KarsaState) -> dict[str, Any]:
     return {"active_module": None}
 
 
-def _general_llm_answer(prompt: str, history: str = "") -> str:
-    """Answer a free-form question via the Hermes/DeepSeek/Gemini council.
+CAPABILITY_WORDS = ["bisa apa", "apa yang bisa", "apa yang kamu", "apa yang sekarang", "fitur", "kemampuan", "menu", "bantuan", "help"]
+GREETING_RE = re.compile(r"(?:\W*(?:sup|yo|halo|hai|hei|pagi|siang|sore|malam|selamat|hello|hi|karsa|apa|kabar)\W*)+")
 
-    Returns the AI answer or transparent error diagnostic instead of falling back to canned greetings.
+
+def _canned_reply(last_user_lower: str) -> str | None:
+    """Fixed answers for greetings and 'what can you do' (0 tokens, instant). None = needs the model."""
+    if any(w in last_user_lower for w in CAPABILITY_WORDS):
+        return (
+                "Hai! Aku **Karsa**, Desktop Island Companion pribadimu! ✨\n\n"
+                "Ini 5 keahlian utama yang bisa langsung kamu gunakan:\n"
+                "1. 💰 **Financial Intelligence**: Catat pengeluaran natural (contoh: *\"makan siang ayam 20rb\"*), pantau sisa saldo, dan hitung *Daily Safe Spend*.\n"
+                "2. 📚 **Daily Life & Study**: Manajemen tugas otomatis dengan *Eisenhower Matrix* (contoh: *\"tugas fisika deadline besok\"*) & rangkum materi kuliah (`.pdf`/`.docx`).\n"
+                "3. 🔬 **Academic Research**: Cari paper jurnal di arXiv & Crossref serta ekstrak otomatis 5 parameter riset kunci.\n"
+                "4. 📝 **Scientific Writer**: Susun draf karya ilmiah berformat IMRaD dan kompilasi langsung ke file Microsoft Word (`.docx`).\n"
+                "5. 📊 **Data Science & Coding**: Profiling dataset `.csv`/`.xlsx` secara lokal di sandbox tanpa membuang token LLM.\n"
+                "6. 🎨 **Wardrobe & Custom Mascot**: Buka menu Wardrobe di Notch untuk gambar aksesoris sendiri di kepalaku!\n\n"
+                "Mau mulai dari mana sekarang? 😊"
+        )
+    if GREETING_RE.fullmatch(last_user_lower):
+        return (
+                "Sup! Karsa di sini, siap menemani produktivitasmu hari ini! ✨\n\n"
+                "Ada yang bisa kubantu? Kamu bisa langsung ketik pengeluaran (*\"kopi 15rb\"*), tugas kuliah, atau minta draf paper riset!"
+        )
+    return None
+
+
+GENERAL_SYSTEM_PROMPT = (
+    "Kamu Karsa, pendamping AI pribadi mahasiswa Indonesia. Jawab dalam bahasa Indonesia yang santai, jelas, "
+    "dan ringkas. Jika kurang yakin, katakan terus terang."
+)
+
+
+def _stream_writer():
+    try:
+        from langgraph.config import get_stream_writer
+
+        return get_stream_writer()
+    except Exception:
+        return None
+
+
+def _general_llm_answer(prompt: str, history: str = "", purpose: str = "chat") -> str:
+    """Free-form answer. Complex questions on a GPU machine use the Hermes -> DeepSeek -> Gemini council; everything
+    else goes to the 'chat' model with automatic failover and streams to the UI while it is being written.
+
+    Returns the answer or a transparent error message, never a canned greeting.
     """
     if not prompt:
         return "Halo! Ada yang bisa kubantu? Ketik pertanyaan atau tugasmu."
-    effective_key = settings.gemini_api_key
-    if not effective_key:
-        from backend.core.database import get_system_setting
-        effective_key = get_system_setting("api_key.gemini", "")
-        if effective_key:
-            settings.gemini_api_key = effective_key
 
-    if not effective_key and settings.hardware_override != "turbo_gpu":
+    from backend.core.council import LONG_PROMPT_CHARS, REASONING_HINTS
+
+    complex_q = bool(REASONING_HINTS.search(prompt)) or len(prompt) > LONG_PROMPT_CHARS
+    if complex_q and settings.hardware_override == "turbo_gpu":
+        try:
+            result = run_council(prompt, mode="relay", context=history)
+            if result.get("ok") and result.get("answer"):
+                return result["answer"]
+        except Exception:
+            pass  # fall through to the normal path
+
+    if not any(router.provider_ready(p) for p in ("gemini", "groq", "cerebras", "openrouter", "mistral", "deepseek", "ollama")):
         return (
-            "⚠️ Kunci API Gemini belum dipasang di Settings.\n"
-            "Silakan tambahkan `GEMINI_API_KEY` di menu Settings atau file `.env` untuk mengaktifkan obrolan AI."
+            "⚠️ Belum ada kunci API yang terpasang.\n"
+            "Buka Settings dan tempel satu kunci gratis (mis. Google Gemini atau Groq) untuk mengaktifkan obrolan AI."
         )
+    messages = [SystemMessage(content=GENERAL_SYSTEM_PROMPT)]
+    if history:
+        messages.append(SystemMessage(content=f"Konteks percakapan sebelumnya:\n{history}"))
+    messages.append(HumanMessage(content=prompt))
+
+    writer = _stream_writer()
     try:
-        result = run_council(prompt, mode="auto", context=history)
-        if result.get("ok") and result.get("answer"):
-            return result["answer"]
-        err_msg = result.get("error", "Model tidak merespons.")
-        return f"⚠️ Gagal memanggil AI: {err_msg}\nSilakan periksa koneksi internet atau kunci API di Settings."
+        parts: list[str] = []
+        for piece in router.stream_text(purpose, messages, module_name=purpose):
+            parts.append(piece)
+            if writer:
+                writer({"token": piece})
+        return "".join(parts)
     except Exception as e:
-        return f"⚠️ Terjadi kesalahan saat memanggil AI: {str(e)}"
+        return f"⚠️ Gagal memanggil AI: {str(e)[:200]}\nPeriksa koneksi internet atau kunci API di Settings."
 
 
 def subagent_dispatch_node(state: KarsaState) -> dict[str, Any]:
@@ -192,30 +257,13 @@ def subagent_dispatch_node(state: KarsaState) -> dict[str, Any]:
                 last_user = last_user_raw.lower()
                 break
 
-        if any(w in last_user for w in ["bisa apa", "apa yang bisa", "apa yang kamu", "apa yang sekarang", "fitur", "kemampuan", "menu", "bantuan", "help"]):
-            response_text = (
-                "Hai! Aku **Karsa**, Desktop Island Companion pribadimu! ✨\n\n"
-                "Ini 5 keahlian utama yang bisa langsung kamu gunakan:\n"
-                "1. 💰 **Financial Intelligence**: Catat pengeluaran natural (contoh: *\"makan siang ayam 20rb\"*), pantau sisa saldo, dan hitung *Daily Safe Spend*.\n"
-                "2. 📚 **Daily Life & Study**: Manajemen tugas otomatis dengan *Eisenhower Matrix* (contoh: *\"tugas fisika deadline besok\"*) & rangkum materi kuliah (`.pdf`/`.docx`).\n"
-                "3. 🔬 **Academic Research**: Cari paper jurnal di arXiv & Crossref serta ekstrak otomatis 5 parameter riset kunci.\n"
-                "4. 📝 **Scientific Writer**: Susun draf karya ilmiah berformat IMRaD dan kompilasi langsung ke file Microsoft Word (`.docx`).\n"
-                "5. 📊 **Data Science & Coding**: Profiling dataset `.csv`/`.xlsx` secara lokal di sandbox tanpa membuang token LLM.\n"
-                "6. 🎨 **Wardrobe & Custom Mascot**: Buka menu Wardrobe di Notch untuk gambar aksesoris sendiri di kepalaku!\n\n"
-                "Mau mulai dari mana sekarang? 😊"
-            )
-        elif re.fullmatch(
-            r"(?:\W*(?:sup|yo|halo|hai|hei|pagi|siang|sore|malam|selamat|hello|hi|karsa|apa|kabar)\W*)+",
-            last_user,
-        ):
-            response_text = (
-                "Sup! Karsa di sini, siap menemani produktivitasmu hari ini! ✨\n\n"
-                "Ada yang bisa kubantu? Kamu bisa langsung ketik pengeluaran (*\"kopi 15rb\"*), tugas kuliah, atau minta draf paper riset!"
-            )
+        canned = _canned_reply(last_user)
+        if canned is not None:
+            response_text = canned
         else:
             # earlier turns (without the question itself), compacted once they pass ~3000 tokens
             earlier = state.get("messages", [])[:-1]
-            response_text = _general_llm_answer(last_user_raw, compact_history(earlier))
+            response_text = _general_llm_answer(last_user_raw, compact_history(earlier), "chat")
 
         return {"messages": [AIMessage(content=response_text)]}
 

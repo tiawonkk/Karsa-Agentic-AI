@@ -8,6 +8,7 @@ import { usePomodoro } from "../stores/pomodoroStore";
 import { priorityOf, useTasks } from "./widgets/TodoWidget";
 import { ChatBridge } from "./widgets/ChatWidget";
 import { useApprovals } from "./widgets/ApprovalsWidget";
+import { bindingOf, prettyCombo, actionFor, widgetForEvent } from "../stores/shortcuts";
 
 interface RightSideDockProps {
   chat: ChatBridge;
@@ -54,14 +55,13 @@ export const RightSideDock: React.FC<RightSideDockProps> = ({ chat, onOpenSettin
     return null;
   };
 
-  // Alt+1..8 toggles the widgets (Alt+1 Pomodoro ... Alt+8 Approvals), from anywhere in the app
+  // Widget shortcuts (default Alt+1 Pomodoro ... Alt+9 Hari Ini), rebindable from the "?" sheet
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.altKey || e.ctrlKey || e.metaKey) return;
-      const n = Number(e.key);
-      if (n >= 1 && n <= WIDGET_IDS.length) {
+      const id = widgetForEvent(e);
+      if (id) {
         e.preventDefault();
-        toggleOpen(WIDGET_IDS[n - 1]);
+        toggleOpen(id);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -150,7 +150,7 @@ export const RightSideDock: React.FC<RightSideDockProps> = ({ chat, onOpenSettin
 
         {/* Quick widget launcher */}
         <div className="flex items-center justify-between px-3 py-2 border-t border-subtle flex-shrink-0">
-          {WIDGET_IDS.map((id: WidgetId, i) => {
+          {WIDGET_IDS.map((id: WidgetId) => {
             const def = WIDGET_DEFS[id];
             const open = widgets[id].open;
             const badge = badgeFor(id);
@@ -159,10 +159,10 @@ export const RightSideDock: React.FC<RightSideDockProps> = ({ chat, onOpenSettin
                 key={id}
                 type="button"
                 onClick={() => toggleOpen(id)}
-                title={`${open ? "Sembunyikan" : "Tampilkan"} ${def.title} (Alt+${i + 1})`}
+                title={`${open ? "Sembunyikan" : "Tampilkan"} ${def.title}${bindingOf(actionFor(id)) ? ` (${prettyCombo(bindingOf(actionFor(id)))})` : ""}`}
                 aria-label={`${open ? "Sembunyikan" : "Tampilkan"} ${def.title}`}
                 aria-pressed={open}
-                className={`relative w-7 h-7 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+                className={`relative w-[26px] h-[26px] rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
                   open ? "text-white" : "bg-pill text-ink-2 hover:text-ink"
                 }`}
                 style={open ? { background: def.accent } : undefined}

@@ -99,9 +99,8 @@ def test_datascience_code_subgraph_flow(tmp_path: Path, monkeypatch):
     assert "Dataset Berhasil Dibersihkan" in content2
     assert "Pandas" in content2
 
-    # 3. Sandboxed terminal
+    # 3. Running tests needs a workspace folder (it used to run the Karsa repo's own test file, whatever the user asked)
     res3 = graph.invoke({
         "messages": [HumanMessage(content="jalankan pytest")]
     })
-    content3 = str(res3["messages"][-1].content)
-    assert "Hasil Eksekusi Sandbox Terminal" in content3
+    assert "Folder kerja belum diatur" in str(res3["messages"][-1].content)

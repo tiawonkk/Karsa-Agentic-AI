@@ -95,6 +95,12 @@ def add_task_in_db(
     """Insert task into database with automatic Eisenhower Matrix quadrant calculation."""
     if not title.strip():
         raise ValueError("Judul tugas tidak boleh kosong.")
+    if len(title.strip()) > MAX_TITLE:
+        raise ValueError(f"Judul tugas maksimal {MAX_TITLE} karakter.")
+    if task_type not in VALID_TASK_TYPES:
+        raise ValueError(f"Jenis tugas harus salah satu dari {', '.join(VALID_TASK_TYPES)}.")
+    if priority is not None and priority not in (1, 2, 3, 4):
+        raise ValueError("Prioritas harus 1 (kritis) sampai 4 (santai).")
     recurrence = _check_recurrence(recurrence)
 
     due_str: str | None = None
@@ -312,6 +318,64 @@ def drop_task_in_db(
         cursor.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,))
         row = cursor.fetchone()
         return dict(row) if row else {}
+
+
+MAX_TITLE = 200
+VALID_TASK_TYPES = ("assignment", "exam", "project", "roadmap", "personal")
+_PRIORITY_FLAGS = {1: (1, 1), 2: (1, 0), 3: (0, 1), 4: (0, 0)}  # priority -> (important, urgent)
+
+
+def update_task_in_db(
+    task_id: int,
+    fields: dict[str, Any],
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Edit a task. Only the fields that are sent change; validation failures write nothing. LookupError if missing."""
+    allowed = {"title", "description", "course", "task_type", "due_at", "priority"}
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ValueError(f"Kolom tidak dikenal: {', '.join(sorted(unknown))}.")
+    if not fields:
+        raise ValueError("Tidak ada yang diubah.")
+    sets: list[str] = []
+    params: list[Any] = []
+    for key, val in fields.items():
+        if key == "title":
+            if not isinstance(val, str) or not val.strip():
+                raise ValueError("Judul tugas tidak boleh kosong.")
+            if len(val.strip()) > MAX_TITLE:
+                raise ValueError(f"Judul tugas maksimal {MAX_TITLE} karakter.")
+            sets.append("title = ?"), params.append(val.strip())
+        elif key in ("description", "course"):
+            text = None if val is None else " ".join(str(val).split()) or None
+            if text and len(text) > (2000 if key == "description" else 80):
+                raise ValueError(f"{key} terlalu panjang.")
+            sets.append(f"{key} = ?"), params.append(text)
+        elif key == "task_type":
+            if val not in VALID_TASK_TYPES:
+                raise ValueError(f"Jenis tugas harus salah satu dari {', '.join(VALID_TASK_TYPES)}.")
+            sets.append("task_type = ?"), params.append(val)
+        elif key == "due_at":
+            if val in (None, ""):
+                sets.append("due_at = ?"), params.append(None)
+            else:
+                parsed = parse_due_date_natural(str(val))
+                if not parsed:
+                    raise ValueError("Tanggal tenggat tidak dikenali. Contoh: besok, 25 Oktober, 2026-10-25 14:00.")
+                sets.append("due_at = ?"), params.append(parsed.strftime("%Y-%m-%d %H:%M:%S"))
+        elif key == "priority":
+            if val not in _PRIORITY_FLAGS:
+                raise ValueError("Prioritas harus 1 (kritis) sampai 4 (santai).")
+            imp, urg = _PRIORITY_FLAGS[val]
+            sets.append("is_important = ?"), params.append(imp)
+            sets.append("is_urgent = ?"), params.append(urg)
+    with get_db_cursor(db_path) as cursor:
+        cursor.execute("SELECT id FROM tasks WHERE id = ?;", (task_id,))
+        if cursor.fetchone() is None:
+            raise LookupError(f"Tugas dengan ID {task_id} tidak ditemukan.")
+        cursor.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?;", [*params, task_id])
+        cursor.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,))
+        return dict(cursor.fetchone())
 
 
 def delete_task_in_db(
@@ -580,7 +644,7 @@ def add_task_tool(
         return ToolError(
             error_code="ADD_TASK_FAILED",
             message=str(e),
-            actionable_hint="Pastikan judul tugas terisi dengan benar.",
+            hint="Pastikan judul tugas terisi dengan benar.",
         ).model_dump()
 
 
@@ -600,7 +664,7 @@ def list_tasks_tool(status: str = "todo", quadrant: str | None = None) -> dict[s
         return ToolError(
             error_code="LIST_TASKS_FAILED",
             message=str(e),
-            actionable_hint="Periksa filter kuadran atau status.",
+            hint="Periksa filter kuadran atau status.",
         ).model_dump()
 
 
@@ -619,5 +683,5 @@ def complete_task_tool(task_id: int) -> dict[str, Any]:
         return ToolError(
             error_code="COMPLETE_TASK_FAILED",
             message=str(e),
-            actionable_hint="Periksa apakah ID tugas valid dan ada di database.",
+            hint="Periksa apakah ID tugas valid dan ada di database.",
         ).model_dump()

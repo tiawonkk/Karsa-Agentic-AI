@@ -14,6 +14,7 @@ from backend.modules.base_module import BaseKarsaModule, ModuleContext, ModuleMa
 from backend.orchestrator.hitl_gate import check_and_request_approval, execute_approved, fingerprint_path
 from backend.modules.research_writer.research_tools import (
     search_and_cache_papers,
+    ResearchSearchError,
     extract_paper_parameters,
     search_papers_tool,
     extract_paper_parameters_tool,
@@ -87,7 +88,12 @@ class ResearchModule(BaseKarsaModule):
                     query = "Agentic AI Systems"
 
                 source = "crossref" if "crossref" in cleaned else "arxiv"
-                papers = search_and_cache_papers(query=query, source=source, max_results=3)
+                try:
+                    papers = search_and_cache_papers(query=query, source=source, max_results=3)
+                except ResearchSearchError as e:
+                    return {"messages": [AIMessage(content=f"⚠️ {e}\nPeriksa koneksi internet lalu coba lagi.")]}
+                if not papers:
+                    return {"messages": [AIMessage(content=f"Tidak ada paper yang cocok dengan '{query}'. Coba kata kunci bahasa Inggris yang lebih spesifik.")]}
 
                 lines = [f"📚 **Hasil Pencarian Jurnal Ilmiah ({source.upper()}) — Topik: '{query}':**\n"]
                 for idx, p in enumerate(papers, 1):
@@ -109,7 +115,7 @@ class ResearchModule(BaseKarsaModule):
                     "secara kritis, runut, dan objektif dalam bahasa Indonesia akademis yang mudah dipahami."
                 )
                 model = ctx.router.get_model(
-                    tier="tier3_reasoning",
+                    purpose="research",
                     module_name="research",
                     session_thread_id=ctx.session_thread_id,
                 )
@@ -277,7 +283,7 @@ class WriterModule(BaseKarsaModule):
                     "dan memperjelas narasi argumen ilmiah."
                 )
                 model = ctx.router.get_model(
-                    tier="tier3_reasoning",
+                    purpose="writer",
                     module_name="writer",
                     session_thread_id=ctx.session_thread_id,
                 )

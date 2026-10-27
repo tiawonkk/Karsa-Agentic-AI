@@ -192,7 +192,7 @@ class FinanceModule(BaseKarsaModule):
                     "Gunakan bahasa Indonesia santai namun sopan."
                 )
                 model = ctx.router.get_model(
-                    tier="tier1_utility",
+                    purpose="finance",
                     module_name="finance",
                     session_thread_id=ctx.session_thread_id,
                 )

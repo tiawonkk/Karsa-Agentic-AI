@@ -204,7 +204,7 @@ def profile_dataset_tool(file_path: str) -> dict[str, Any]:
         return ToolError(
             error_code="DATASET_PROFILE_FAILED",
             message=str(e),
-            actionable_hint="Pastikan file dataset ada dan berformat .csv atau .xlsx.",
+            hint="Pastikan file dataset ada dan berformat .csv atau .xlsx.",
         ).model_dump()
 
 
@@ -233,5 +233,5 @@ def clean_dataset_tool(
         return ToolError(
             error_code="DATASET_CLEAN_FAILED",
             message=str(e),
-            actionable_hint="Periksa keberadaan file dan izin tulis direktori.",
+            hint="Periksa keberadaan file dan izin tulis direktori.",
         ).model_dump()

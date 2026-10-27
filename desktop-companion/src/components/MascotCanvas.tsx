@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { Mood, OutfitItem, drawOutfit, useJellyMood } from "../lib/jelly";
 
 export interface MascotProps {
   size?: number; // base size in pixels (default 52)
@@ -6,7 +7,18 @@ export interface MascotProps {
   eyeColor?: string; // default deep obsidian black
   isSleeping?: boolean;
   isDraggingOver?: boolean;
+  /** Legacy single drawn accessory (kept so old callers compile); use `outfit` */
   accessoryImage?: string | null;
+  /** Everything Karsa wears (presets and drawings), editable in the Wardrobe */
+  outfit?: OutfitItem[];
+  /** Force a mood; by default Karsa follows the shared mood set by the app (the AI agent's state) */
+  mood?: Mood;
+  /** The canvas and its wrapper let clicks through (the big stage supplies its own round hit area) */
+  passThrough?: boolean;
+  /** Scale the canvas with CSS only (the drawing resolution stays the same) */
+  displayScale?: number;
+  /** Change this number to make the jelly do a squish bounce from outside (a poke) */
+  pokeKey?: number;
   showStarOrbit?: boolean;
   hoverTarget?: "settings" | "add" | "chat" | null;
   emoteContext?: "money" | "search" | "screen" | "code" | "success" | null;
@@ -25,8 +37,8 @@ interface NubState {
 }
 
 /**
- * Minimalist Coucou Mochi Mascot Canvas
- * Refactored to match Coucou on Windows aesthetic:
+ * Karsa: Karsa's glowing-orb mascot (canvas)
+ * Karsa's own look:
  * 1. Pillowy marshmallow squircle with soft radial gradient, top rim light, and subtle bottom drop shadow.
  * 2. Expressive clean closed smiling arches (⌒   ⌒) or smooth bead eyes tracking mouse.
  * 3. Soft floating nubs (two pure white mini spheres bobbing gently beside the body).
@@ -40,6 +52,11 @@ export const MascotCanvas: React.FC<MascotProps> = ({
   isSleeping = false,
   isDraggingOver = false,
   accessoryImage = null,
+  outfit,
+  mood: moodProp,
+  passThrough = false,
+  displayScale = 1,
+  pokeKey,
   showStarOrbit = true,
   hoverTarget = null,
   emoteContext = null,
@@ -83,21 +100,27 @@ export const MascotCanvas: React.FC<MascotProps> = ({
 
   const blinkState = useRef({ isBlinking: false, timer: 0, duration: 130 });
   const animFrameId = useRef<number | null>(null);
-  const accessoryImgElement = useRef<HTMLImageElement | null>(null);
+  const storeMood = useJellyMood();
+  const moodRef = useRef<Mood>("idle");
+  moodRef.current = moodProp ?? storeMood;
+  const outfitRef = useRef<OutfitItem[]>([]);
+  outfitRef.current = outfit ?? (accessoryImage ? [{ id: "legacy", kind: "custom", src: accessoryImage, x: 0, y: -0.95, s: 1.2, rot: 0, color: "#FFFFFF" }] : []);
+  const imgCache = useRef<Map<string, HTMLImageElement | null>>(new Map());
+  const getImg = (src: string): HTMLImageElement | null => {
+    const cached = imgCache.current.get(src);
+    if (cached !== undefined) return cached;
+    imgCache.current.set(src, null);
+    const img = new Image();
+    img.onload = () => imgCache.current.set(src, img);
+    img.src = src;
+    return null;
+  };
   const clickBounceTime = useRef<number>(0);
 
-  // Load accessory image
   useEffect(() => {
-    if (!accessoryImage) {
-      accessoryImgElement.current = null;
-      return;
-    }
-    const img = new Image();
-    img.src = accessoryImage;
-    img.onload = () => {
-      accessoryImgElement.current = img;
-    };
-  }, [accessoryImage]);
+    if (pokeKey) handleClick();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pokeKey]);
 
   // Mouse move listener
   useEffect(() => {
@@ -177,9 +200,27 @@ export const MascotCanvas: React.FC<MascotProps> = ({
       let targetRightX = baseNubX + mx * (r * 0.2);
       let targetRightY = baseNubY + idleBobR + my * (r * 0.15);
 
-      if (emoteContext === "success") {
+      const md = moodRef.current;
+      if (emoteContext === "success" || md === "happy") {
         targetLeftY = -r * 0.7 + idleBobL;
         targetRightY = -r * 0.7 - idleBobR;
+        if (md === "happy") spring.current.targetScaleY = 1 + 0.07 * Math.sin(time * 0.012);
+      } else if (md === "thinking") {
+        // one hand goes to the chin
+        targetRightX = r * 0.42;
+        targetRightY = r * 0.62;
+        spring.current.targetScaleY = 1;
+      } else if (md === "speaking") {
+        spring.current.targetScaleY = 1 + 0.045 * Math.sin(time * 0.02);
+        targetLeftY = baseNubY - Math.abs(Math.sin(time * 0.01)) * r * 0.3;
+        targetRightY = baseNubY - Math.abs(Math.cos(time * 0.01)) * r * 0.3;
+      } else if (md === "worried") {
+        targetLeftX = -r * 0.5;
+        targetRightX = r * 0.5;
+        targetLeftY = targetRightY = r * 0.35;
+        spring.current.targetScaleY = 1;
+      } else {
+        spring.current.targetScaleY = 1;
       }
 
       // 4. Update Nubs Spring Physics
@@ -200,7 +241,7 @@ export const MascotCanvas: React.FC<MascotProps> = ({
       rightNub.current.y += rightNub.current.vy * dt;
 
       // 5. Render Scene
-      drawCoucouScene(
+      drawJellyScene(
         ctx,
         size,
         bodyColor,
@@ -213,7 +254,9 @@ export const MascotCanvas: React.FC<MascotProps> = ({
         blinkState.current.isBlinking,
         isSleeping,
         isDraggingOver,
-        accessoryImgElement.current,
+        outfitRef.current,
+        getImg,
+        moodRef.current,
         time,
         showStarOrbit,
         isDark
@@ -237,7 +280,7 @@ export const MascotCanvas: React.FC<MascotProps> = ({
 
   return (
     <div
-      className="relative flex items-center justify-center cursor-pointer select-none pointer-events-auto"
+      className={`relative flex items-center justify-center select-none ${passThrough ? "pointer-events-none" : "cursor-pointer pointer-events-auto"}`}
       onClick={handleClick}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
@@ -246,7 +289,7 @@ export const MascotCanvas: React.FC<MascotProps> = ({
           onDropFile?.(e.dataTransfer.files);
         }
       }}
-      title="Coucou Karsa — Klik untuk menyapa!"
+      title="Karsa — Klik untuk menyapa!"
     >
       <canvas
         ref={canvasRef}
@@ -254,18 +297,36 @@ export const MascotCanvas: React.FC<MascotProps> = ({
         height={canvasH}
         className="block drop-shadow-xs"
         style={{
-          width: canvasW,
-          height: canvasH,
+          width: canvasW * displayScale,
+          height: canvasH * displayScale,
         }}
       />
     </div>
   );
 };
 
+const hexToHsl = (hex: string): [number, number, number] => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return [200, 85, 70];
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return [200, 85, 70]; // greys/whites mean "use the rainbow jelly"
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = (h * 60 + 360) % 360;
+  return [h, Math.round(s * 100), Math.round(l * 100)];
+};
+
 /**
- * Render Coucou Mochi Mascot (Reference: Coucou on Windows Screenshot 1)
+ * Karsa: Karsa's mascot. A soft glowing orb of colour with two white pill eyes and nothing else: no ears, no cheeks, no
+ * mouth. The glow drifts through the rainbow (or locks to the Wardrobe colour), breathes, and squishes when poked.
+ * Moods live in the eyes: thinking looks up, talking pulses, happy closes into arcs, worried tilts, listening widens.
+ * Light: a warm luminous glow fading to white. Dark: the same glow floating on the dark glass. Accessories sit on top.
  */
-function drawCoucouScene(
+function drawJellyScene(
   ctx: CanvasRenderingContext2D,
   size: number,
   bodyColor: string,
@@ -273,233 +334,186 @@ function drawCoucouScene(
   scaleX: number,
   scaleY: number,
   mouse: { x: number; y: number },
-  leftNub: NubState,
-  rightNub: NubState,
+  _leftNub: NubState,
+  _rightNub: NubState,
   isBlinking: boolean,
   isSleeping: boolean,
   isDraggingOver: boolean,
-  accessoryImg: HTMLImageElement | null,
+  outfit: OutfitItem[],
+  getImg: (src: string) => HTMLImageElement | null,
+  mood: Mood,
   time: number,
   showStarOrbit: boolean,
   isDark: boolean
 ) {
+  void _leftNub;
+  void _rightNub;
+  void eyeColor; // the eyes are always white pills, as in the reference
   const w = ctx.canvas.width;
   const h = ctx.canvas.height;
   const cx = w / 2;
-  const cy = h / 2 + 1;
-  const r = size * 0.46;
+  const cy = h / 2 + 2;
+  const R = size * 0.52;
+
+  const isDefault = bodyColor === "#FAF9F6" || !bodyColor;
+  // the rainbow skips the sickly yellow-green band (hues 60-160): warm -> teal -> blue -> violet -> pink -> warm
+  const rainbow = (t: number) => {
+    const h = (t * 0.007) % 260;
+    return h > 60 ? h + 100 : h;
+  };
+  const hue = isDefault ? rainbow(time) % 360 : hexToHsl(bodyColor)[0];
+  const breathe = isSleeping ? 0.35 : 0.8 + 0.2 * Math.sin(time * 0.0025);
+  const hsl = (dh: number, s: number, l: number, a: number) => `hsla(${(hue + dh) % 360}, ${s}%, ${l}%, ${a})`;
 
   ctx.clearRect(0, 0, w, h);
   ctx.save();
   ctx.translate(cx, cy);
 
-  // 1. Cosmic Dark Luminous Halo Ring behind Coucou (Reference: Coucou dark space glow)
-  ctx.save();
-  if (showStarOrbit) {
-    // Outer soft dark cosmic aura
-    const haloGrad = ctx.createRadialGradient(0, 0, r * 0.4, 0, 0, r * 2.3);
-    if (isDark) {
-      haloGrad.addColorStop(0, "rgba(255, 255, 255, 0.12)");
-      haloGrad.addColorStop(0.45, "rgba(147, 197, 253, 0.08)");
-      haloGrad.addColorStop(0.75, "rgba(59, 130, 246, 0.03)");
-      haloGrad.addColorStop(1, "transparent");
-    } else {
-      haloGrad.addColorStop(0, "rgba(255, 255, 255, 0.8)");
-      haloGrad.addColorStop(0.5, "rgba(224, 231, 255, 0.4)");
-      haloGrad.addColorStop(1, "transparent");
-    }
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 2.3, 0, Math.PI * 2);
-    ctx.fillStyle = haloGrad;
-    ctx.fill();
+  // 1. soft halo (never larger than the canvas, so it cannot show a square edge)
+  const auraR = Math.min(R * 1.9, Math.min(w, h) / 2 - 1);
+  const aura = ctx.createRadialGradient(0, R * 0.15, R * 0.3, 0, R * 0.15, auraR);
+  aura.addColorStop(0, hsl(10, 95, isDark ? 62 : 70, (isDark ? 0.32 : 0.28) * breathe));
+  aura.addColorStop(1, "transparent");
+  ctx.beginPath();
+  ctx.arc(0, R * 0.15, auraR, 0, Math.PI * 2);
+  ctx.fillStyle = aura;
+  ctx.fill();
 
-    // Subtle fine starlight ring (sparse, clean, no dirty red dust)
-    const numStars = 28;
-    const rx = r * 2.1;
-    const ry = r * 0.75;
-    for (let i = 0; i < numStars; i++) {
-      const angle = (i * Math.PI * 2) / numStars + time * 0.0002;
-      const offset = Math.sin(i * 9.2 + time * 0.001) * (r * 0.15);
-      const px = Math.cos(angle) * (rx + offset);
-      const py = Math.sin(angle) * (ry + offset * 0.4);
-      const alpha = 0.12 + 0.45 * Math.abs(Math.sin(i * 5.3 + time * 0.0015));
-
+  if (showStarOrbit && !isSleeping) {
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI * 2) / 8 + time * 0.0003;
       ctx.beginPath();
-      ctx.arc(px, py, i % 4 === 0 ? 1.2 : 0.8, 0, Math.PI * 2);
-      ctx.fillStyle = isDark ? `rgba(255, 255, 255, ${alpha})` : `rgba(100, 116, 139, ${alpha * 0.5})`;
+      ctx.arc(Math.cos(a) * R * 1.85, Math.sin(a) * R * 0.65, i % 3 === 0 ? 1.8 : 1.2, 0, Math.PI * 2);
+      ctx.fillStyle = hsl(i * 40, 95, isDark ? 78 : 62, 0.35 + 0.5 * Math.abs(Math.sin(i * 3.1 + time * 0.002)));
       ctx.fill();
     }
-  } else {
-    // Minimal soft aura
-    const aura = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 1.45);
-    aura.addColorStop(0, isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(255, 255, 255, 0.7)");
-    aura.addColorStop(1, "transparent");
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 1.45, 0, Math.PI * 2);
-    ctx.fillStyle = aura;
-    ctx.fill();
   }
-  ctx.restore();
 
-  // 2. Draw Floating Nubs (Two pure white mini spheres on sides)
-  const nubRadius = r * 0.28;
-  const drawNub = (nx: number, ny: number) => {
-    ctx.save();
-    ctx.translate(nx, ny);
-
-    // Soft nub shadow
-    ctx.beginPath();
-    ctx.ellipse(0, nubRadius * 0.4, nubRadius * 0.85, nubRadius * 0.55, 0, 0, Math.PI * 2);
-    ctx.fillStyle = isDark ? "rgba(0, 0, 0, 0.25)" : "rgba(0, 0, 0, 0.06)";
-    ctx.fill();
-
-    // Nub sphere
-    ctx.beginPath();
-    ctx.arc(0, 0, nubRadius, 0, Math.PI * 2);
-    const nubGrad = ctx.createRadialGradient(
-      -nubRadius * 0.25,
-      -nubRadius * 0.3,
-      nubRadius * 0.1,
-      0,
-      0,
-      nubRadius * 1.15
-    );
-    nubGrad.addColorStop(0, "#ffffff");
-    nubGrad.addColorStop(0.65, "#f4f4f5");
-    nubGrad.addColorStop(1, "#d4d4d8");
-    ctx.fillStyle = nubGrad;
-    ctx.shadowColor = isDark ? "rgba(0, 0, 0, 0.4)" : "rgba(0, 0, 0, 0.08)";
-    ctx.shadowBlur = 4;
-    ctx.fill();
-    ctx.shadowColor = "transparent";
-
-    // Tiny specular reflection
-    ctx.beginPath();
-    ctx.arc(-nubRadius * 0.3, -nubRadius * 0.32, nubRadius * 0.26, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
-    ctx.fill();
-
-    ctx.restore();
-  };
-
-  drawNub(leftNub.x, leftNub.y);
-  drawNub(rightNub.x, rightNub.y);
-
-  // 3. Draw Coucou Body (Marshmallow Pillowy Squircle)
   ctx.save();
   ctx.scale(scaleX, scaleY);
 
-  // Soft bottom shadow under body
-  ctx.beginPath();
-  ctx.ellipse(0, r * 0.88, r * 0.95, r * 0.28, 0, 0, Math.PI * 2);
-  ctx.fillStyle = isDark ? "rgba(0, 0, 0, 0.35)" : "rgba(0, 0, 0, 0.08)";
-  ctx.fill();
+  // 2. the orb: a soft squircle with a slowly wobbling edge, bright warm core fading outward
+  const N = 80;
+  const pts: Array<[number, number]> = [];
+  for (let i = 0; i < N; i++) {
+    const t = (i / N) * Math.PI * 2;
+    const wob = isSleeping ? 0 : 0.016 * Math.sin(3 * t + time * 0.0028) + 0.01 * Math.sin(5 * t - time * 0.0036);
+    // squircle radius: superellipse so the shape is a rounded square, not a circle
+    const c = Math.cos(t);
+    const s = Math.sin(t);
+    const k = 1 / Math.pow(Math.pow(Math.abs(c), 3.2) + Math.pow(Math.abs(s), 3.2), 1 / 3.2);
+    pts.push([c * k * R * 0.98 * (1 + wob), s * k * R * 0.9 * (1 + wob)]);
+  }
+  const body = new Path2D();
+  body.moveTo((pts[0][0] + pts[N - 1][0]) / 2, (pts[0][1] + pts[N - 1][1]) / 2);
+  for (let i = 0; i < N; i++) {
+    const p = pts[i];
+    const q = pts[(i + 1) % N];
+    body.quadraticCurveTo(p[0], p[1], (p[0] + q[0]) / 2, (p[1] + q[1]) / 2);
+  }
+  body.closePath();
 
-  // Pillowy Squircle Body
-  const bodyW = r * 1.95;
-  const bodyH = r * 1.65;
-  const cornerR = r * 0.65;
-
-  ctx.beginPath();
-  ctx.roundRect(-bodyW / 2, -bodyH / 2, bodyW, bodyH, cornerR);
-
-  // Radial marshmallow shading: pure white core radiating to soft warm zinc
-  const bodyGrad = ctx.createRadialGradient(0, -bodyH * 0.2, r * 0.2, 0, bodyH * 0.1, r * 1.35);
-  bodyGrad.addColorStop(0, "#ffffff");
-  bodyGrad.addColorStop(0.55, bodyColor === "#FAF9F6" ? "#fbfbfa" : bodyColor);
-  bodyGrad.addColorStop(0.9, "#e4e4e7");
-  bodyGrad.addColorStop(1, "#d4d4d8");
-
-  ctx.fillStyle = bodyGrad;
-  ctx.shadowColor = isDark ? "rgba(0, 0, 0, 0.55)" : "rgba(0, 0, 0, 0.12)";
-  ctx.shadowBlur = 12;
-  ctx.shadowOffsetY = 3;
-  ctx.fill();
+  const fill = ctx.createRadialGradient(0, R * 0.5, R * 0.05, 0, R * 0.25, R * 1.25);
+  fill.addColorStop(0, hsl(0, 100, 60, 0.98 * breathe + 0.02));
+  fill.addColorStop(0.38, hsl(12, 96, 68, 0.95));
+  fill.addColorStop(0.72, hsl(24, 92, isDark ? 62 : 78, isDark ? 0.78 : 0.95));
+  fill.addColorStop(1, hsl(36, 88, isDark ? 42 : 86, isDark ? 0.5 : 0.92));
+  ctx.shadowColor = hsl(10, 95, 60, isDark ? 0.55 : 0.4);
+  ctx.shadowBlur = isDark ? 22 : 18;
+  ctx.fillStyle = fill;
+  ctx.filter = `blur(${Math.max(0.6, R * 0.028)}px)`; // a slightly fuzzy edge, like the reference glow
+  ctx.fill(body);
+  ctx.filter = "none";
   ctx.shadowColor = "transparent";
 
-  // Top Rim Light (Soft highlight along top curve)
+  // a faint top sheen, the only gloss
   ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(-bodyW / 2 + 2, -bodyH / 2 + 1, bodyW - 4, bodyH * 0.5, cornerR * 0.9);
-  const rimGrad = ctx.createLinearGradient(0, -bodyH / 2, 0, 0);
-  rimGrad.addColorStop(0, "rgba(255, 255, 255, 0.85)");
-  rimGrad.addColorStop(0.7, "rgba(255, 255, 255, 0.15)");
-  rimGrad.addColorStop(1, "transparent");
-  ctx.fillStyle = rimGrad;
-  ctx.fill();
+  ctx.clip(body);
+  const sheen = ctx.createLinearGradient(0, -R, 0, -R * 0.1);
+  sheen.addColorStop(0, `rgba(255, 255, 255, ${isDark ? 0.22 : 0.5})`);
+  sheen.addColorStop(1, "transparent");
+  ctx.fillStyle = sheen;
+  ctx.fillRect(-R * 1.2, -R * 1.2, R * 2.4, R * 1.2);
   ctx.restore();
 
-  // 4. Eyes & Facial Expression
-  const eyeDistance = r * 0.46;
-  const eyeY = -r * 0.05;
-  const eyeRadius = r * 0.26;
-
-  // Determine if looking around or showing joyful closed smile
-  const isTracking = Math.hypot(mouse.x, mouse.y) > 0.18 && !isSleeping && !isBlinking;
-
-  const drawCoucouEye = (ex: number) => {
+  // 3. eyes: two white pills, mood in their shape
+  const eyeDist = R * 0.34;
+  const eyeY = R * 0.04;
+  const ew = R * 0.2;
+  const eh = R * 0.4;
+  const talk = mood === "speaking" ? 0.5 + 0.5 * Math.sin(time * 0.022) : 0;
+  const closed = isSleeping || isBlinking || mood === "happy";
+  const eye = (ex: number, side: number) => {
     ctx.save();
     ctx.translate(ex, eyeY);
-
-    if (isSleeping || isBlinking || !isTracking) {
-      // Default: Pure joyful thick curved arches ⌒  ⌒ (Reference: Coucou Screenshot 1)
-      ctx.beginPath();
-      // Draw bold clean upward arc: ⌒
-      ctx.arc(0, eyeRadius * 0.35, eyeRadius * 0.8, 1.15 * Math.PI, 1.85 * Math.PI, false);
-      ctx.strokeStyle = eyeColor;
-      ctx.lineWidth = 3.6;
+    ctx.shadowColor = "rgba(255, 255, 255, 0.9)";
+    ctx.shadowBlur = R * 0.16;
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#ffffff";
+    if (closed) {
+      ctx.lineWidth = Math.max(3, R * 0.09);
       ctx.lineCap = "round";
+      ctx.beginPath();
+      if (isSleeping || isBlinking) {
+        ctx.moveTo(-ew * 0.55, 0);
+        ctx.lineTo(ew * 0.55, 0);
+      } else {
+        ctx.arc(0, ew * 0.45, ew * 0.62, 1.12 * Math.PI, 1.88 * Math.PI);
+      }
       ctx.stroke();
     } else {
-      // Smooth black oval beads looking in cursor direction
-      const gazeX = Math.max(-1, Math.min(1, mouse.x)) * (eyeRadius * 0.4);
-      const gazeY = Math.max(-1, Math.min(1, mouse.y)) * (eyeRadius * 0.35);
-
+      let gx = Math.max(-1, Math.min(1, mouse.x)) * R * 0.1;
+      let gy = Math.max(-1, Math.min(1, mouse.y)) * R * 0.07;
+      let sx = 1;
+      let sy = 1;
+      let rot = 0;
+      if (mood === "thinking") {
+        gx = R * 0.1;
+        gy = -R * 0.12;
+        sy = 0.9;
+      } else if (mood === "speaking") {
+        sy = 1 - 0.22 * talk;
+        sx = 1 + 0.08 * talk;
+      } else if (mood === "worried") {
+        rot = side * -0.26;
+        gy = R * 0.05;
+      } else if (mood === "listening") {
+        sx = 1.15;
+        sy = 1.18;
+      }
+      ctx.translate(gx, gy);
+      ctx.rotate(rot);
       ctx.beginPath();
-      ctx.ellipse(gazeX, gazeY, eyeRadius * 0.52, eyeRadius * 0.65, 0, 0, Math.PI * 2);
-      ctx.fillStyle = eyeColor;
-      ctx.fill();
-
-      // Clean white specular reflection
-      ctx.beginPath();
-      ctx.arc(gazeX - eyeRadius * 0.18, gazeY - eyeRadius * 0.22, eyeRadius * 0.18, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
+      ctx.roundRect(-ew / 2 * sx, -eh / 2 * sy, ew * sx, eh * sy, ew / 2);
       ctx.fill();
     }
-
     ctx.restore();
   };
+  eye(-eyeDist, -1);
+  eye(eyeDist, 1);
 
-  drawCoucouEye(-eyeDistance);
-  drawCoucouEye(eyeDistance);
-
-  // 5. Subtle Transparent Pink Blush (Opacity 15%, No dirty stripes or harsh dots)
-  const blushRadius = r * 0.18;
-  const blushY = eyeY + eyeRadius * 0.75;
-  ctx.save();
-  ctx.beginPath();
-  ctx.ellipse(-eyeDistance - r * 0.15, blushY, blushRadius * 1.15, blushRadius * 0.7, 0, 0, Math.PI * 2);
-  ctx.ellipse(eyeDistance + r * 0.15, blushY, blushRadius * 1.15, blushRadius * 0.7, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(251, 113, 133, 0.15)";
-  ctx.fill();
-  ctx.restore();
-
-  // 6. Dragging Over Swallow Indicator (Optional drag-and-drop feedback)
   if (isDraggingOver) {
+    // dropping a file: the orb opens a small dark mouth to "eat" it
     ctx.beginPath();
-    ctx.ellipse(0, r * 0.32, r * 0.35, r * 0.22, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "#18181b";
+    ctx.ellipse(0, R * 0.42, R * 0.13, R * 0.1, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(60, 20, 60, 0.75)";
     ctx.fill();
   }
 
-  // 7. Wardrobe Accessory Image (if worn)
-  if (accessoryImg) {
-    ctx.save();
-    const accSize = r * 1.6;
-    ctx.drawImage(accessoryImg, -accSize / 2, -r * 1.15, accSize, accSize);
-    ctx.restore();
+  // 4. Outfit: drawn inside the squish transform so accessories squish with the orb
+  drawOutfit(ctx, R, outfit, getImg);
+
+  ctx.restore(); // end squish scale
+
+  if (mood === "thinking") {
+    for (let i = 0; i < 3; i++) {
+      const pulse = 0.5 + 0.5 * Math.sin(time * 0.006 - i * 0.9);
+      ctx.beginPath();
+      ctx.arc(R * (0.85 + i * 0.26), -R * (0.95 + i * 0.12), R * (0.06 + 0.04 * pulse), 0, Math.PI * 2);
+      ctx.fillStyle = isDark ? "rgba(255, 255, 255, 0.85)" : "rgba(80, 70, 120, 0.7)";
+      ctx.fill();
+    }
   }
 
-  ctx.restore(); // end body squish scale
   ctx.restore(); // end canvas center translate
 }

@@ -50,6 +50,72 @@ DEFAULT_TIER_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
+# Providers the user can pick per purpose. Everything except gemini/ollama/anthropic speaks the OpenAI wire format.
+# Free-tier limits and model names change often: `models` are suggestions the user can overwrite with any name.
+PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
+    "gemini": {
+        "label": "Google Gemini",
+        "free": "Gratis untuk model Flash (ada batas harian)",
+        "key_url": "https://aistudio.google.com/apikey",
+        "models": [GEMINI_DEFAULT_MODEL],
+    },
+    "groq": {
+        "label": "Groq",
+        "base_url": "https://api.groq.com/openai/v1",
+        "free": "Gratis dengan batas harian, sangat cepat",
+        "key_url": "https://console.groq.com/keys",
+        "models": ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"],
+    },
+    "openrouter": {
+        "label": "OpenRouter",
+        "base_url": "https://openrouter.ai/api/v1",
+        "free": "Satu kunci, ada model berakhiran :free",
+        "key_url": "https://openrouter.ai/keys",
+        "models": ["deepseek/deepseek-r1:free"],
+    },
+    "cerebras": {
+        "label": "Cerebras",
+        "base_url": "https://api.cerebras.ai/v1",
+        "free": "Gratis dengan batas token harian, sangat cepat",
+        "key_url": "https://cloud.cerebras.ai",
+        "models": ["llama-3.3-70b"],
+    },
+    "mistral": {
+        "label": "Mistral",
+        "base_url": "https://api.mistral.ai/v1",
+        "free": "Paket gratis untuk eksperimen",
+        "key_url": "https://console.mistral.ai/api-keys",
+        "models": ["mistral-small-latest"],
+    },
+    "deepseek": {
+        "label": "DeepSeek",
+        "free": "Kredit awal kecil, lalu sangat murah (bukan gratis)",
+        "key_url": "https://platform.deepseek.com/api_keys",
+        "models": ["deepseek-chat", "deepseek-reasoner"],
+    },
+    "ollama": {
+        "label": "Ollama (lokal)",
+        "free": "Gratis selamanya, butuh PC dengan GPU",
+        "key_url": "https://ollama.com",
+        "models": ["hermes3:8b", "deepseek-r1:8b"],
+    },
+}
+# When a preferred provider has no key, the first ready provider in this order takes over (auto failover).
+PROVIDER_ORDER = ("gemini", "groq", "cerebras", "openrouter", "mistral", "deepseek")
+
+# What each part of Karsa is for. `prefer` is used while the user has not picked anything.
+PURPOSES: dict[str, dict[str, str]] = {
+    "chat": {"label": "Obrolan umum", "prefer": "gemini"},
+    "finance": {"label": "Keuangan & struk", "prefer": "gemini"},
+    "study": {"label": "Belajar & tugas", "prefer": "gemini"},
+    "research": {"label": "Riset & jurnal", "prefer": "gemini"},
+    "writer": {"label": "Penulisan ilmiah", "prefer": "deepseek"},
+    "code": {"label": "Kode & data", "prefer": "deepseek"},
+}
+LLM_TIMEOUT_S = 25.0
+LLM_RETRIES = 1
+
+
 class LLMRouter:
     """Universal Model Router supporting hot-swappable providers and hardware adaptation."""
 
@@ -123,9 +189,11 @@ class LLMRouter:
         temperature: float = 0.2,
         base_url: str | None = None,
         api_key: str | None = None,
+        timeout: float | None = None,
     ) -> BaseChatModel:
         """Instantiate a LangChain chat model based on provider identifier."""
         prov = provider.lower()
+        t_out = timeout or LLM_TIMEOUT_S
 
         if prov == "ollama":
             try:
@@ -149,23 +217,25 @@ class LLMRouter:
                     model=model_name,
                     google_api_key=key,
                     temperature=temperature,
-                    request_timeout=15.0,
+                    request_timeout=t_out,
+                    max_retries=LLM_RETRIES,
                 )
             except ImportError:
                 raise RuntimeError("langchain-google-genai is not installed.")
 
-        elif prov == "groq":
+        elif prov in ("groq", "openrouter", "cerebras", "mistral"):
             try:
-                from langchain_groq import ChatGroq
-                key = api_key or settings.groq_api_key
-                return ChatGroq(
+                from langchain_openai import ChatOpenAI
+                return ChatOpenAI(
                     model=model_name,
-                    groq_api_key=key,
+                    api_key=api_key or self.provider_key(prov) or "missing-key",
+                    base_url=base_url or PROVIDER_CATALOG[prov]["base_url"],
                     temperature=temperature,
-                    timeout=15.0,
+                    timeout=t_out,
+                    max_retries=LLM_RETRIES,
                 )
             except ImportError:
-                raise RuntimeError("langchain-groq is not installed.")
+                raise RuntimeError("langchain-openai is not installed.")
 
         elif prov == "anthropic":
             try:
@@ -192,7 +262,8 @@ class LLMRouter:
                     api_key=key or "missing-key",
                     base_url=base_url or settings.deepseek_base_url,
                     temperature=temperature,
-                    timeout=15.0,
+                    timeout=t_out,
+                    max_retries=LLM_RETRIES,
                 )
             except ImportError:
                 raise RuntimeError("langchain-openai is not installed.")
@@ -223,9 +294,15 @@ class LLMRouter:
         temperature: float | None = None,
         module_name: str = "core",
         session_thread_id: str | None = None,
+        purpose: str | None = None,
+        timeout: float | None = None,
     ) -> BaseChatModel:
-        """Get or create chat model instance configured with token tracking callbacks."""
-        config = self.get_tier_config(tier)
+        """Get or create chat model instance configured with token tracking callbacks.
+
+        `purpose` (chat/finance/study/research/writer/code) takes precedence over `tier`: the model then comes from the
+        user's per-purpose plan, or from the best provider that has a key.
+        """
+        config = self.get_purpose_config(purpose) if purpose else self.get_tier_config(tier)
         prov = provider or config.get("provider", "gemini")
         mdl = model or config.get("model", "gemini-3.8-flash")
         temp = temperature if temperature is not None else float(config.get("temperature", 0.2))
@@ -234,7 +311,7 @@ class LLMRouter:
         cache_key = f"{tier}:{prov}:{mdl}:{temp}:{module_name}"
 
         # Initialize base model
-        base_model = self.create_chat_model(prov, mdl, temp)
+        base_model = self.create_chat_model(prov, mdl, temp, timeout=timeout)
 
         # Attach token tracking telemetry callback
         tracker = TokenTrackerCallbackHandler(
@@ -246,6 +323,151 @@ class LLMRouter:
         )
 
         return base_model.with_config(callbacks=[tracker])
+
+    # ------------------------------------------------------------------ per-purpose plan + failover
+    def get_model(self, *args: Any, **kwargs: Any) -> BaseChatModel:
+        """Alias used by the specialist modules (they were calling a method that did not exist)."""
+        return self.get_chat_model(*args, **kwargs)
+
+    @staticmethod
+    def provider_key(provider: str) -> str:
+        from backend.core.database import get_system_setting
+
+        key = getattr(settings, f"{provider}_api_key", None) or get_system_setting(f"api_key.{provider}", "") or ""
+        return str(key).strip()
+
+    def provider_ready(self, provider: str) -> bool:
+        if provider == "ollama":
+            return detect_hardware_profile().mode == "turbo_gpu"
+        return bool(self.provider_key(provider))
+
+    @staticmethod
+    def _default_model(provider: str) -> str:
+        return PROVIDER_CATALOG[provider]["models"][0]
+
+    def get_purpose_config(self, purpose: str) -> dict[str, Any]:
+        """The user's pick for this purpose, else the preferred provider, else the first provider that has a key."""
+        spec = PURPOSES.get(purpose, PURPOSES["chat"])
+        try:
+            with get_db_cursor() as cursor:
+                cursor.execute("SELECT value FROM system_settings WHERE key = ?;", (f"models.purpose.{purpose}",))
+                row = cursor.fetchone()
+                if row and row["value"]:
+                    cfg = modernize_tier_config(json.loads(row["value"]))
+                    if cfg.get("provider") in PROVIDER_CATALOG and cfg.get("model"):
+                        return {"temperature": 0.2, **cfg, "source": "custom"}
+        except Exception:
+            pass
+        prefer = spec["prefer"]
+        order = [prefer] + [p for p in PROVIDER_ORDER if p != prefer]
+        chosen = next((p for p in order if self.provider_ready(p)), prefer)
+        return {
+            "provider": chosen,
+            "model": self._default_model(chosen),
+            "temperature": 0.2,
+            "source": "default" if chosen == prefer else "auto",
+        }
+
+    def set_purpose_config(self, purpose: str, provider: str | None, model: str | None = None) -> None:
+        """Pick a provider/model for one purpose; `provider=None` goes back to automatic."""
+        if purpose not in PURPOSES:
+            raise ValueError(f"Kegunaan tidak dikenal: {purpose}")
+        key = f"models.purpose.{purpose}"
+        with get_db_cursor() as cursor:
+            if provider is None:
+                cursor.execute("DELETE FROM system_settings WHERE key = ?;", (key,))
+                return
+            if provider not in PROVIDER_CATALOG:
+                raise ValueError(f"Penyedia tidak dikenal: {provider}")
+            name = (model or "").strip() or self._default_model(provider)
+            if len(name) > 120 or any(c.isspace() for c in name):
+                raise ValueError("Nama model tidak valid.")
+            cursor.execute(
+                """
+                INSERT INTO system_settings (key, value, updated_at)
+                VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+                """,
+                (key, json.dumps({"provider": provider, "model": name, "temperature": 0.2})),
+            )
+
+    def plan_overview(self) -> dict[str, Any]:
+        return {
+            "purposes": [
+                {"purpose": p, "label": spec["label"], **self.get_purpose_config(p), "ready": self.provider_ready(self.get_purpose_config(p)["provider"])}
+                for p, spec in PURPOSES.items()
+            ],
+            "providers": [
+                {"id": pid, "label": c["label"], "free": c["free"], "key_url": c["key_url"], "models": c["models"], "has_key": self.provider_ready(pid)}
+                for pid, c in PROVIDER_CATALOG.items()
+            ],
+        }
+
+    def candidates(self, purpose: str) -> list[dict[str, Any]]:
+        """The purpose's model first, then every other ready provider (so a slow or exhausted one never blocks chat)."""
+        first = self.get_purpose_config(purpose)
+        out = [first] if self.provider_ready(first["provider"]) else []  # a provider without a key is skipped, not tried
+        for pid in PROVIDER_ORDER:
+            if pid != first["provider"] and self.provider_ready(pid):
+                out.append({"provider": pid, "model": self._default_model(pid), "temperature": first.get("temperature", 0.2)})
+        return out
+
+    def _model_for(self, cfg: dict[str, Any], purpose: str, module_name: str, session_thread_id: str | None, timeout: float | None):
+        return self.get_chat_model(
+            provider=cfg["provider"],
+            model=cfg["model"],
+            temperature=cfg.get("temperature", 0.2),
+            module_name=module_name,
+            session_thread_id=session_thread_id,
+            timeout=timeout,
+        )
+
+    def invoke_text(
+        self,
+        purpose: str,
+        messages: list[Any],
+        module_name: str = "chat",
+        session_thread_id: str | None = None,
+        timeout: float | None = None,
+    ) -> str:
+        """One answer with automatic failover across the providers that have a key."""
+        last: Exception | None = None
+        for cfg in self.candidates(purpose):
+            try:
+                res = self._model_for(cfg, purpose, module_name, session_thread_id, timeout).invoke(messages)
+                text = res.content if isinstance(res.content, str) else "".join(str(c.get("text", c)) if isinstance(c, dict) else str(c) for c in res.content)
+                if text.strip():
+                    return text
+            except Exception as e:  # try the next provider
+                last = e
+        raise RuntimeError(str(last) if last else "Tidak ada penyedia AI yang siap. Pasang kunci API di Settings.")
+
+    def stream_text(
+        self,
+        purpose: str,
+        messages: list[Any],
+        module_name: str = "chat",
+        session_thread_id: str | None = None,
+        timeout: float | None = None,
+    ):
+        """Yield the answer piece by piece. Fails over to the next provider only before the first piece arrived."""
+        last: Exception | None = None
+        for cfg in self.candidates(purpose):
+            started = False
+            try:
+                for chunk in self._model_for(cfg, purpose, module_name, session_thread_id, timeout).stream(messages):
+                    c = chunk.content
+                    text = c if isinstance(c, str) else "".join(str(x.get("text", "")) if isinstance(x, dict) else str(x) for x in c)
+                    if text:
+                        started = True
+                        yield text
+                if started:
+                    return
+            except Exception as e:
+                last = e
+                if started:
+                    return  # keep what the user already saw; do not restart on another model mid-sentence
+        raise RuntimeError(str(last) if last else "Tidak ada penyedia AI yang siap. Pasang kunci API di Settings.")
 
     def route_model_for_specialization(self, task_or_module: str) -> dict[str, Any]:
         """Dynamic specialization auto-router (Instruction 4):

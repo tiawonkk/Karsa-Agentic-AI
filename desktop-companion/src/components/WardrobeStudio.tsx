@@ -1,7 +1,9 @@
 import React, { useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Brush, Eraser, RotateCcw, Check, Sparkles, X, Pin, Minus, Maximize2 } from "lucide-react";
+import { Brush, Eraser, RotateCcw, Check, Sparkles, X, Pin, Minus, Maximize2, Trash2 } from "lucide-react";
+import { MascotCanvas } from "./MascotCanvas";
+import { MAX_OUTFIT_ITEMS, OutfitItem, PRESETS, PRESET_IDS, drawOutfit, newItem } from "../lib/jelly";
 
 export interface AccessoryItem {
   id: string;
@@ -17,8 +19,8 @@ interface WardrobeStudioProps {
   onColorChange: (color: string) => void;
   currentEyeColor: string;
   onEyeColorChange: (color: string) => void;
-  activeAccessory: string | null;
-  onSelectAccessory: (dataUrl: string | null) => void;
+  outfit: OutfitItem[];
+  onOutfitChange: (items: OutfitItem[]) => void;
   isDark?: boolean;
 }
 
@@ -39,6 +41,28 @@ const PRESET_EYE_COLORS = [
   "#782E1E", // Roasted Terracotta
 ];
 
+/** Small canvas preview of one preset (drawn with the same code that dresses Karsa). */
+const THUMB: Record<string, { y: number; s: number }> = {
+  party_hat: { y: 0.46, s: 0.95 }, crown: { y: 0.05, s: 1.45 }, bow: { y: 0, s: 1.2 }, glasses: { y: 0, s: 1.15 },
+  shades: { y: 0, s: 1.15 }, headphones: { y: 0.05, s: 0.62 }, flower: { y: 0, s: 1.5 }, halo: { y: 0, s: 1.5 },
+  wizard_hat: { y: 0.45, s: 0.9 }, scarf: { y: -0.05, s: 1.0 }, mustache: { y: 0, s: 1.7 }, star: { y: 0, s: 1.7 },
+};
+const PresetThumb: React.FC<{ kind: string }> = ({ kind }) => {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const c = ref.current;
+    const ctx = c?.getContext("2d");
+    if (!c || !ctx) return;
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.save();
+    ctx.translate(c.width / 2, c.height / 2);
+    const t = THUMB[kind] ?? { y: 0, s: 1 };
+    drawOutfit(ctx, 17, [{ id: "t", kind, x: 0, y: t.y, s: t.s, rot: 0, color: PRESETS[kind].defaults.color }], () => null);
+    ctx.restore();
+  }, [kind]);
+  return <canvas ref={ref} width={52} height={40} className="w-[52px] h-[40px] rounded-lg bg-white/85" />;
+};
+
 export const WardrobeStudio: React.FC<WardrobeStudioProps> = ({
   isOpen,
   onClose,
@@ -46,11 +70,33 @@ export const WardrobeStudio: React.FC<WardrobeStudioProps> = ({
   onColorChange,
   currentEyeColor,
   onEyeColorChange,
-  activeAccessory,
-  onSelectAccessory,
+  outfit,
+  onOutfitChange,
   isDark = true,
 }) => {
-  const [tab, setTab] = useState<"colors" | "draw" | "closet">("colors");
+  const [tab, setTab] = useState<"outfit" | "colors" | "draw" | "closet">("outfit");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = outfit.find((i) => i.id === selectedId) ?? null;
+
+  const wear = (kind: string, src?: string) => {
+    if (outfit.length >= MAX_OUTFIT_ITEMS) return;
+    if (kind === "custom" && outfit.filter((i) => i.kind === "custom").length >= 3) return;
+    const it = newItem(kind, src);
+    if (!it) return;
+    onOutfitChange([...outfit, it]);
+    setSelectedId(it.id);
+  };
+  const takeOff = (id: string) => {
+    onOutfitChange(outfit.filter((i) => i.id !== id));
+    if (selectedId === id) setSelectedId(null);
+  };
+  const patchItem = (id: string, patch: Partial<OutfitItem>) =>
+    onOutfitChange(outfit.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  const togglePreset = (kind: string) => {
+    const worn = outfit.find((i) => i.kind === kind);
+    if (worn) takeOff(worn.id);
+    else wear(kind);
+  };
   const [isPinned, setIsPinned] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -182,7 +228,7 @@ export const WardrobeStudio: React.FC<WardrobeStudioProps> = ({
     const updated = [newItem, ...accessories];
     setAccessories(updated);
     localStorage.setItem("karsa_wardrobe_items", JSON.stringify(updated));
-    onSelectAccessory(dataUrl);
+    wear("custom", dataUrl);
 
     fetch("/api/v1/wardrobe/items", {
       method: "POST",
@@ -267,7 +313,7 @@ export const WardrobeStudio: React.FC<WardrobeStudioProps> = ({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94, y: 10 }}
           transition={{ type: "spring", stiffness: 380, damping: 28 }}
-          className={`fixed top-12 left-24 z-50 w-[335px] max-w-[calc(100vw-1.5rem)] h-[390px] rounded-[28px] flex flex-col pointer-events-auto border backdrop-blur-2xl select-none overflow-hidden karsa-surface`}
+          className={`fixed top-12 left-24 z-50 w-[335px] max-w-[calc(100vw-1.5rem)] h-[480px] max-h-[88vh] rounded-[28px] flex flex-col pointer-events-auto border backdrop-blur-2xl select-none overflow-hidden karsa-surface`}
         >
           {/* Header & Drag Handle */}
           <div
@@ -339,6 +385,18 @@ export const WardrobeStudio: React.FC<WardrobeStudioProps> = ({
             }`}
           >
             <button
+              onClick={() => setTab("outfit")}
+              className={`px-2 py-1 rounded-md flex-1 text-center transition-all cursor-pointer ${
+                tab === "outfit"
+                  ? isDark
+                    ? "bg-white/15 text-white shadow-xs"
+                    : "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Aksesori
+            </button>
+            <button
               onClick={() => setTab("colors")}
               className={`px-2.5 py-1 rounded-md flex-1 text-center transition-all cursor-pointer ${
                 tab === "colors"
@@ -348,7 +406,7 @@ export const WardrobeStudio: React.FC<WardrobeStudioProps> = ({
                   : "text-zinc-400 hover:text-zinc-200"
               }`}
             >
-              Warna Maskot
+              Warna
             </button>
             <button
               onClick={() => setTab("draw")}
@@ -372,12 +430,121 @@ export const WardrobeStudio: React.FC<WardrobeStudioProps> = ({
                   : "text-zinc-400 hover:text-zinc-200"
               }`}
             >
-              Koleksi ({accessories.length})
+              Koleksi
             </button>
           </div>
 
           {/* Content Area */}
           <div className="flex-1 overflow-y-auto p-3 text-xs">
+            {tab === "outfit" && (
+              <div className="space-y-2.5">
+                <div className="sticky top-0 z-10 flex justify-center items-center h-[112px] rounded-2xl bg-card border border-subtle overflow-hidden">
+                  <MascotCanvas
+                    size={52}
+                    bodyColor={currentColor}
+                    eyeColor={currentEyeColor}
+                    outfit={outfit}
+                    isDark={isDark}
+                    showStarOrbit={false}
+                    mood="idle"
+                    passThrough
+                  />
+                </div>
+
+                <div className="grid grid-cols-4 gap-1.5">
+                  {PRESET_IDS.map((id) => {
+                    const worn = outfit.some((i) => i.kind === id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => togglePreset(id)}
+                        title={PRESETS[id].label}
+                        aria-pressed={worn}
+                        className={`rounded-xl border p-1 flex flex-col items-center gap-0.5 cursor-pointer transition active:scale-95 ${
+                          worn ? "border-accent bg-accent/10" : "border-subtle bg-pill/50 hover:border-strong"
+                        }`}
+                      >
+                        <PresetThumb kind={id} />
+                        <span className="text-[9px] leading-tight truncate w-full text-center">{PRESETS[id].label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {outfit.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {outfit.map((it) => (
+                        <button
+                          key={it.id}
+                          type="button"
+                          onClick={() => setSelectedId(it.id === selectedId ? null : it.id)}
+                          className={`h-6 px-2 rounded-full text-[10px] font-semibold cursor-pointer ${
+                            it.id === selectedId ? "bg-accent text-white" : "bg-pill text-ink-2 hover:text-ink"
+                          }`}
+                        >
+                          {it.kind === "custom" ? "🎨 Gambar" : `${PRESETS[it.kind].emoji} ${PRESETS[it.kind].label}`}
+                        </button>
+                      ))}
+                      <button type="button" onClick={() => (onOutfitChange([]), setSelectedId(null))} className="h-6 px-2 rounded-full text-[10px] text-rose-400 hover:underline cursor-pointer">
+                        Lepas semua
+                      </button>
+                    </div>
+
+                    {selected && (
+                      <div className="rounded-xl border border-subtle p-2 space-y-1.5">
+                        {(
+                          [
+                            ["Geser kiri-kanan", "x", -2.5, 2.5, 0.02],
+                            ["Naik-turun", "y", -2.5, 2.5, 0.02],
+                            ["Ukuran", "s", 0.2, 3, 0.02],
+                            ["Putar", "rot", -180, 180, 1],
+                          ] as const
+                        ).map(([label, key, lo, hi, step]) => (
+                          <label key={key} className="flex items-center gap-2 text-[10px] text-zinc-400">
+                            <span className="w-20 flex-shrink-0">{label}</span>
+                            <input
+                              type="range"
+                              min={lo}
+                              max={hi}
+                              step={step}
+                              value={selected[key]}
+                              onChange={(e) => patchItem(selected.id, { [key]: Number(e.target.value) } as Partial<OutfitItem>)}
+                              className="flex-1 accent-[var(--accent-primary)]"
+                              aria-label={label}
+                            />
+                          </label>
+                        ))}
+                        <div className="flex items-center gap-2 pt-0.5">
+                          {selected.kind !== "custom" && (
+                            <label className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                              Warna
+                              <input type="color" value={selected.color} onChange={(e) => patchItem(selected.id, { color: e.target.value })} className="w-6 h-6 rounded cursor-pointer bg-transparent border-0" />
+                            </label>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const d = selected.kind === "custom" ? { x: 0, y: -0.95, s: 1.2, rot: 0 } : PRESETS[selected.kind].defaults;
+                              patchItem(selected.id, { x: d.x, y: d.y, s: d.s, rot: d.rot });
+                            }}
+                            className="ml-auto text-[10px] text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer"
+                          >
+                            <RotateCcw className="w-3 h-3" /> Posisi awal
+                          </button>
+                          <button type="button" onClick={() => takeOff(selected.id)} className="text-[10px] text-rose-400 hover:underline flex items-center gap-1 cursor-pointer">
+                            <Trash2 className="w-3 h-3" /> Lepas
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-[9.5px] text-zinc-500">Maksimal {MAX_OUTFIT_ITEMS} aksesori. Pilihan tersimpan otomatis dan ikut tampil di Karsa versi besar.</p>
+              </div>
+            )}
+
             {tab === "colors" && (
               <div className="space-y-3">
                 <div>
@@ -512,12 +679,12 @@ export const WardrobeStudio: React.FC<WardrobeStudioProps> = ({
               <div className="space-y-2">
                 <div className="flex justify-between items-center text-[11px]">
                   <span className="text-zinc-400">Pilih aksesoris tersimpan:</span>
-                  {activeAccessory && (
+                  {outfit.some((i) => i.kind === "custom") && (
                     <button
-                      onClick={() => onSelectAccessory(null)}
+                      onClick={() => onOutfitChange(outfit.filter((i) => i.kind !== "custom"))}
                       className="text-rose-400 hover:underline text-[10px] cursor-pointer"
                     >
-                      Lepas Aksesoris
+                      Lepas gambarku
                     </button>
                   )}
                 </div>
@@ -531,9 +698,13 @@ export const WardrobeStudio: React.FC<WardrobeStudioProps> = ({
                     {accessories.map((item) => (
                       <div
                         key={item.id}
-                        onClick={() => onSelectAccessory(item.dataUrl)}
+                        onClick={() => {
+                          const worn = outfit.find((i) => i.src === item.dataUrl);
+                          if (worn) takeOff(worn.id);
+                          else wear("custom", item.dataUrl);
+                        }}
                         className={`p-1.5 rounded-lg border flex flex-col items-center gap-1 cursor-pointer transition ${
-                          activeAccessory === item.dataUrl
+                          outfit.some((i) => i.src === item.dataUrl)
                             ? "border-indigo-400 bg-indigo-500/10 shadow-xs"
                             : isDark
                             ? "border-white/10 bg-white/[0.03] hover:border-white/20"

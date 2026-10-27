@@ -54,6 +54,7 @@ def get_notebook(notebook_id: int, db_path: Path | str | None = None) -> dict[st
 
 
 def delete_notebook(notebook_id: int, db_path: Path | str | None = None) -> None:
+    get_notebook(notebook_id, db_path)  # NotebookError(not_found) when it is already gone
     with get_db_cursor(db_path) as cur:
         cur.execute("DELETE FROM notebook_chunks WHERE notebook_id = ?;", (notebook_id,))
         cur.execute("DELETE FROM notebook_sources WHERE notebook_id = ?;", (notebook_id,))
@@ -91,6 +92,7 @@ def add_source(
 
 
 def remove_source(source_id: int, db_path: Path | str | None = None) -> None:
+    get_source(source_id, db_path)  # NotebookError(not_found) when it is already gone
     with get_db_cursor(db_path) as cur:
         cur.execute("DELETE FROM notebook_chunks WHERE source_id = ?;", (source_id,))
         cur.execute("DELETE FROM notebook_sources WHERE id = ?;", (source_id,))

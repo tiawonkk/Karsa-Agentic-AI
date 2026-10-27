@@ -20,6 +20,7 @@ import {
   Minus,
   Maximize2,
 } from "lucide-react";
+import { ModelPlanPanel } from "./ModelPlanPanel";
 import { useSystemStatus } from "../context/SystemStatusContext";
 import { SettingsSlide } from "./slides/SettingsSlide";
 
@@ -84,7 +85,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSleepChange,
   isDark = true,
 }) => {
-  const [activeTab, setActiveTab] = useState<"keys" | "appearance" | "hardware">("keys");
+  const [activeTab, setActiveTab] = useState<"keys" | "plan" | "appearance" | "hardware">("keys");
   const [isPinned, setIsPinned] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -342,7 +343,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <button
               onClick={() => setActiveTab("keys")}
-              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2 py-1 rounded-md flex items-center gap-1 whitespace-nowrap transition-all cursor-pointer ${
                 activeTab === "keys"
                   ? isDark
                     ? "bg-white/15 text-white shadow-xs"
@@ -351,12 +352,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }`}
             >
               <ShieldCheck className="w-3 h-3 text-emerald-400" />
-              <span>API Key & AI</span>
+              <span>Kunci</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("plan")}
+              className={`px-2 py-1 rounded-md flex items-center gap-1 whitespace-nowrap transition-all cursor-pointer ${
+                activeTab === "plan"
+                  ? isDark
+                    ? "bg-white/15 text-white shadow-xs"
+                    : "bg-white text-slate-900 shadow-xs border border-slate-200/80"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <Zap className="w-3 h-3 text-amber-400" />
+              <span>Model AI</span>
             </button>
 
             <button
               onClick={() => setActiveTab("appearance")}
-              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2 py-1 rounded-md flex items-center gap-1 whitespace-nowrap transition-all cursor-pointer ${
                 activeTab === "appearance"
                   ? isDark
                     ? "bg-white/15 text-white shadow-xs"
@@ -370,7 +385,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             <button
               onClick={() => setActiveTab("hardware")}
-              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2 py-1 rounded-md flex items-center gap-1 whitespace-nowrap transition-all cursor-pointer ${
                 activeTab === "hardware"
                   ? isDark
                     ? "bg-white/15 text-white shadow-xs"
@@ -531,6 +546,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
             )}
+
+            {activeTab === "plan" && <ModelPlanPanel />}
 
             {activeTab === "appearance" && (
               <div className="space-y-3">

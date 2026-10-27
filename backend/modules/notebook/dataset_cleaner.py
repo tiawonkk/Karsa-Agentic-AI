@@ -178,6 +178,20 @@ def clean_dataframe(df: pd.DataFrame, opts: CleanOptions) -> tuple[pd.DataFrame,
                 step("coerce_numeric", f"Kolom '{c}' diubah ke angka" + (f" ({bad} nilai tidak terbaca → kosong)" if bad else ""), int(parsed.notna().sum()))
                 columns_report.setdefault(str(c), {})["type"] = "numeric"
 
+    # 5b. mixed columns (mostly numbers with a few words) are NOT coerced, so no data is destroyed; tell the user instead
+    warnings: list[dict[str, Any]] = []
+    for c in list(df.columns):
+        if pd.api.types.is_numeric_dtype(df[c]):
+            continue
+        vals = df[c].dropna().astype(str)
+        if len(vals) < 3:
+            continue
+        parsed = vals.map(parse_number)
+        ratio = float(parsed.notna().mean())
+        if 0.5 <= ratio < 0.8 and not vals.map(lambda v: bool(_DATE_LIKE.match(v))).mean() > 0.5:
+            odd = [v for v, ok in zip(vals, parsed.notna()) if not ok][:3]
+            warnings.append({"column": str(c), "detail": f"Kolom '{c}' campuran angka dan teks (contoh teks: {', '.join(repr(o) for o in odd)}). Dibiarkan apa adanya; perbaiki nilai itu lalu bersihkan lagi."})
+
     # 6. dates -> ISO (YYYY-MM-DD)
     if opts.parse_dates:
         for c in list(df.columns):
@@ -249,6 +263,7 @@ def clean_dataframe(df: pd.DataFrame, opts: CleanOptions) -> tuple[pd.DataFrame,
         "steps": steps,
         "missing_remaining": missing_left,
         "outliers": outliers,
+        "warnings": warnings,
         "columns": columns_report,
         "options": asdict(opts),
     }

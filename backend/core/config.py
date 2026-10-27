@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # API Keys (optional depending on active cloud provider)
     gemini_api_key: str | None = None
     groq_api_key: str | None = None
+    openrouter_api_key: str | None = None
+    cerebras_api_key: str | None = None
+    mistral_api_key: str | None = None
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
     openai_compatible_base_url: str | None = None

@@ -39,6 +39,8 @@ class KarsaState(TypedDict, total=False):
 
     # External Reference Pattern (Only Absolute Paths, Never Large Blobs)
     active_workspace_path: str | None
+    # Chat panel mode: chat | code | research (decides which AI answers and which module gets plain text)
+    chat_mode: str | None
     current_document_ref: str | None
     current_dataset_ref: str | None
 

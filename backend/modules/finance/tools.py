@@ -251,6 +251,8 @@ def record_transaction_in_db(
     """Persist an expenditure into financial_transactions table."""
     if amount_idr <= 0:
         raise ValueError("Nominal transaksi harus lebih besar dari 0.")
+    if amount_idr > 1_000_000_000:
+        raise ValueError("Nominal terlalu besar (maksimal Rp 1.000.000.000).")
 
     if category not in VALID_CATEGORIES:
         raise ValueError(f"Kategori tidak valid: {category}. Harus salah satu dari {VALID_CATEGORIES}")
@@ -327,14 +329,38 @@ def get_budget_snapshot(
     rem_investment = alloc_investment - spent_by_category["investment"]
     rem_kesenangan = alloc_kesenangan - spent_by_category["kesenangan"]
 
+    # Income (manual ledger) is spread over the categories in the same proportions as the budget
+    from backend.modules.finance.ledger import income_total
+
+    income = income_total(period, db_path)
+    if income:
+        shares = {
+            "makanan": alloc_makanan, "pelajaran": alloc_pelajaran, "kesehatan": alloc_kesehatan,
+            "investment": alloc_investment, "kesenangan": alloc_kesenangan,
+        }
+        base = sum(shares.values()) or 1
+        extra = {k: income * v // base for k, v in shares.items()}
+        extra["kesenangan"] += income - sum(extra.values())  # keep the sum exact
+        alloc_makanan += extra["makanan"]
+        alloc_pelajaran += extra["pelajaran"]
+        alloc_kesehatan += extra["kesehatan"]
+        alloc_investment += extra["investment"]
+        alloc_kesenangan += extra["kesenangan"]
+        rem_makanan = alloc_makanan - spent_by_category["makanan"]
+        rem_pelajaran = alloc_pelajaran - spent_by_category["pelajaran"]
+        rem_kesehatan = alloc_kesehatan - spent_by_category["kesehatan"]
+        rem_investment = alloc_investment - spent_by_category["investment"]
+        rem_kesenangan = alloc_kesenangan - spent_by_category["kesenangan"]
+
     total_spent = sum(spent_by_category.values())
-    total_remaining = total_capital - total_spent
+    total_remaining = total_capital + income - total_spent
 
     daily_safe_spend = calculate_daily_safe_spend(rem_makanan, rem_kesenangan, remaining_days)
 
     return {
         "period": period,
         "total_capital_idr": total_capital,
+        "total_income_idr": income,
         "total_spent_idr": total_spent,
         "total_remaining_idr": total_remaining,
         "remaining_days": remaining_days,
@@ -524,7 +550,7 @@ def record_transaction_tool(
         return ToolError(
             error_code="RECORD_TXN_FAILED",
             message=str(e),
-            actionable_hint="Pastikan nominal > 0 dan kategori adalah salah satu dari 5 kategori resmi.",
+            hint="Pastikan nominal > 0 dan kategori adalah salah satu dari 5 kategori resmi.",
         ).model_dump()
 
 
@@ -542,7 +568,7 @@ def get_budget_snapshot_tool(period: str | None = None) -> dict[str, Any]:
         return ToolError(
             error_code="BUDGET_SNAPSHOT_FAILED",
             message=str(e),
-            actionable_hint="Periksa apakah format periode YYYY-MM sesuai.",
+            hint="Periksa apakah format periode YYYY-MM sesuai.",
         ).model_dump()
 
 
@@ -560,5 +586,5 @@ def evaluate_investment_readiness_tool(period: str | None = None) -> dict[str, A
         return ToolError(
             error_code="INVESTMENT_CHECK_FAILED",
             message=str(e),
-            actionable_hint="Periksa ketersediaan data transaksi bulan ini.",
+            hint="Periksa ketersediaan data transaksi bulan ini.",
         ).model_dump()

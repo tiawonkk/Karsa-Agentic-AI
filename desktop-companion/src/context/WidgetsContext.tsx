@@ -1,9 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-export type WidgetId = "pomodoro" | "water" | "todo" | "finance" | "media" | "chat" | "notebook" | "approvals";
+export type WidgetId = "pomodoro" | "water" | "todo" | "finance" | "media" | "chat" | "notebook" | "approvals" | "today";
 export type WidgetSize = "S" | "M" | "L";
 
-export const WIDGET_IDS: WidgetId[] = ["pomodoro", "water", "todo", "finance", "media", "chat", "notebook", "approvals"];
+export const WIDGET_IDS: WidgetId[] = ["pomodoro", "water", "todo", "finance", "media", "chat", "notebook", "approvals", "today"];
 
 /** Preset sizes: S = nano pill, M = compact card, L = expanded view. */
 export const SIZE_DIMS: Record<WidgetSize, { w: number; h: number }> = {
@@ -34,7 +34,7 @@ export interface WidgetState {
 
 type WidgetMap = Record<WidgetId, WidgetState>;
 
-const STORAGE_KEY = "karsa_widgets_v1";
+const STORAGE_KEY = "karsa_widgets_v3";
 
 const defaults = (): WidgetMap => {
   const base = (size: WidgetSize, i: number): WidgetState => ({
@@ -52,10 +52,10 @@ const defaults = (): WidgetMap => {
     finance: base("M", 3),
     media: base("M", 4),
     chat: base("L", 5),
-    // The notebook needs room (tables, drafts): it starts as a floating 400x500 window
-    notebook: { open: false, docked: false, size: "L", custom: { w: 400, h: 500 }, x: 140, y: 90 },
-    // Approval cards need room for evidence + JSON edit: floating 360x480 by default
-    approvals: { open: false, docked: false, size: "L", custom: { w: 360, h: 480 }, x: 170, y: 100 },
+    // heavy modules start as floating windows (too wide for the 275px dock); Hari Ini opens in the dock
+    notebook: { ...base("L", 6), docked: false, custom: { w: 420, h: 480 } },
+    approvals: { ...base("L", 7), docked: false, custom: { w: 360, h: 480 } },
+    today: { ...base("L", 8), open: true },
   };
 };
 
@@ -84,19 +84,8 @@ const load = (): WidgetMap => {
   return d;
 };
 
-/** Live drop-zone hint while a widget is being dragged (rendered once by <DropHints/>) */
-export interface DragHint {
-  zone: "left" | "right" | "dock";
-  accent: string;
-  dockBox: { left: number; top: number; width: number; height: number } | null;
-}
-
 interface WidgetsContextType {
   widgets: WidgetMap;
-  dragHint: DragHint | null;
-  setDragHint: (hint: DragHint | null) => void;
-  /** Detach a docked widget so it floats at the given position (used when it is dragged out of the dock). */
-  undockAt: (id: WidgetId, x: number, y: number) => void;
   toggleOpen: (id: WidgetId) => void;
   openWidget: (id: WidgetId) => void;
   closeWidget: (id: WidgetId) => void;
@@ -110,7 +99,6 @@ const WidgetsContext = createContext<WidgetsContextType | null>(null);
 
 export const WidgetsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [widgets, setWidgets] = useState<WidgetMap>(load);
-  const [dragHint, setDragHint] = useState<DragHint | null>(null);
 
   useEffect(() => {
     try {
@@ -125,9 +113,6 @@ export const WidgetsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const value = useMemo<WidgetsContextType>(
     () => ({
       widgets,
-      dragHint,
-      setDragHint,
-      undockAt: (id, x, y) => patch(id, { docked: false, x, y }),
       toggleOpen: (id) => patch(id, (s) => ({ open: !s.open })),
       openWidget: (id) => patch(id, { open: true }),
       closeWidget: (id) => patch(id, { open: false }),
@@ -148,7 +133,7 @@ export const WidgetsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setPos: (id, x, y) => patch(id, { x, y }),
       setCustom: (id, dims) => patch(id, { custom: dims }),
     }),
-    [widgets, dragHint, patch]
+    [widgets, patch]
   );
 
   return <WidgetsContext.Provider value={value}>{children}</WidgetsContext.Provider>;

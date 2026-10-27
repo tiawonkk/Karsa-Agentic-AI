@@ -12,7 +12,8 @@ from langgraph.graph.state import CompiledStateGraph
 
 from backend.core.state import KarsaState, ProposedAction
 from backend.modules.base_module import BaseKarsaModule, ModuleContext, ModuleManifest, registry
-from backend.orchestrator.hitl_gate import check_and_request_approval
+from backend.orchestrator.hitl_gate import check_and_request_approval, execute_approved, fingerprint_path
+from backend.modules.datascience_code import workspace as ws
 from backend.modules.datascience_code.tools import (
     profile_dataset_locally,
     clean_dataset_locally,
@@ -40,6 +41,109 @@ class DataScienceCodeModule(BaseKarsaModule):
 
     def get_tools(self) -> list[BaseTool]:
         return [profile_dataset_tool, clean_dataset_tool]
+
+    # ---- workspace coding intents -------------------------------------------------------------------------------------
+    _FILE_RE = re.compile(r"([\w\-./\\]*\.[A-Za-z0-9]{1,5})")  # also dot-files such as .env
+
+    def _ask_code_model(self, ctx: ModuleContext, system: str, user: str) -> str:
+        from langchain_core.messages import HumanMessage as _H, SystemMessage as _S
+
+        return ctx.router.invoke_text("code", [_S(content=system), _H(content=user)], module_name="datascience_code")
+
+    def _workspace_intent(self, ctx: ModuleContext, state: KarsaState, text: str, cleaned: str) -> str | None:
+        """Returns the reply for read/explain, fix/patch and run-tests requests; None if the text is not about code files."""
+        wants_tests = any(k in cleaned for k in ("jalankan pytest", "run pytest", "jalankan test", "test kode", "jalankan tes"))
+        wants_fix = bool(re.search(r"\b(perbaiki|ubah|refactor|tambahkan|tambah|rapikan|optimalkan|ganti)\b", cleaned)) and bool(self._FILE_RE.search(text))
+        wants_read = bool(re.search(r"\b(baca|jelaskan|periksa|review|cek|lihat|explain)\b", cleaned)) and bool(self._FILE_RE.search(text))
+        wants_list = any(k in cleaned for k in ("daftar file", "list file", "isi folder", "file apa saja"))
+        if not (wants_tests or wants_fix or wants_read or wants_list):
+            return None
+        if wants_read and any(e in cleaned for e in (".csv", ".xlsx", ".xls")):
+            return None  # datasets are handled by the profiling/cleaning paths
+
+        try:
+            root = ws.workspace_root(state.get("active_workspace_path"))
+        except ws.WorkspaceError as e:
+            return f"📁 {e}"
+
+        thread_id = ctx.session_thread_id or state.get("session_thread_id") or "default_thread"
+        if wants_list:
+            files = ws.list_workspace_files(root)
+            return "📁 **File di folder kerja:**\n" + ("\n".join(f"• `{f}`" for f in files) if files else "Tidak ada file kode yang bisa dibaca.")
+
+        if wants_tests:
+            action = ProposedAction(
+                action_id=f"act_test_{uuid.uuid4().hex[:8]}",
+                module="datascience_code",
+                action_name="run_shell_command",
+                args={"command": "python -m pytest -q -x", "cwd": str(root)},
+                editable_args=[],
+                preview=f"Jalankan tes di folder kerja: {root}",
+                reason="Menjalankan tes berarti menjalankan kode proyekmu.",
+                impact="Kode di folder itu dieksekusi di komputermu (batas waktu 90 detik).",
+            )
+            decision = check_and_request_approval(action, thread_id, self.manifest.high_risk_actions, nonce=str(len(state.get("messages", []))))
+            if not decision or decision.get("decision") not in ("approve", "edit"):
+                return "❌ Menjalankan tes dibatalkan."
+            out = execute_approved(decision["action_id"], lambda: ws.run_workspace_tests(root))
+            if not out["ran"]:
+                return f"⚠️ Tes tidak dijalankan ({out['error'] or out['reason']})."
+            res = out["result"]
+            icon = {"success": "✅", "failed": "❌", "timeout": "⏱️"}.get(res["status"], "⚠️")
+            return f"{icon} **Hasil tes di `{root.name}`** (kode keluar {res['returncode']}):\n```text\n{(res['stdout'] or res['stderr']).strip()[-1800:]}\n```"
+
+        rel = self._FILE_RE.search(text).group(1)  # type: ignore[union-attr]
+        try:
+            target, code = ws.read_code_file(root, rel)
+        except ws.WorkspaceError as e:
+            return f"⚠️ {e}"
+
+        if wants_read and not wants_fix:
+            try:
+                return self._ask_code_model(
+                    ctx,
+                    "Kamu mentor coding mahasiswa. Jelaskan kode berikut dengan bahasa Indonesia yang jelas: tujuan, alur utama, dan 3 hal yang bisa diperbaiki.",
+                    f"File `{target.name}`:\n```\n{code}\n```\n\nPermintaan: {text}",
+                )
+            except Exception as e:
+                return f"⚠️ AI belum bisa dipakai ({str(e)[:120]}). Berikut awal file `{target.name}`:\n```\n{code[:800]}\n```"
+
+        # fix / change: the model proposes a whole new file; the human approves the diff; a backup is kept
+        try:
+            reply = self._ask_code_model(
+                ctx,
+                "Kamu software engineer. Ubah file sesuai permintaan. Balas dengan SATU blok kode berisi seluruh isi file yang baru, "
+                "lalu penjelasan singkat. Jangan mengubah hal lain.",
+                f"File `{target.name}`:\n```\n{code}\n```\n\nPermintaan: {text}",
+            )
+        except Exception as e:
+            return f"⚠️ AI belum bisa dipakai ({str(e)[:120]}), jadi perubahan tidak dibuat."
+        new_code = ws.extract_code_block(reply)
+        if new_code is None:
+            return "⚠️ AI tidak memberi kode baru, jadi tidak ada yang diubah. Jawabannya:\n\n" + reply[:1200]
+        if new_code.strip() == code.strip():
+            return "ℹ️ Tidak ada perubahan yang perlu dibuat pada file itu."
+        diff = ws.make_diff(code, new_code, target.name)
+        action = ProposedAction(
+            action_id=f"act_patch_{uuid.uuid4().hex[:8]}",
+            module="datascience_code",
+            action_name="apply_code_patch",
+            target_path=str(target),
+            args={"file": target.name},
+            editable_args=[],
+            preview=diff,
+            reason=f"Permintaanmu: {text[:120]}",
+            impact="Isi file diganti; salinan asli disimpan sebagai .bak.",
+            fingerprint=fingerprint_path(target),
+        )
+        decision = check_and_request_approval(action, thread_id, self.manifest.high_risk_actions, nonce=str(len(state.get("messages", []))))
+        if not decision or decision.get("decision") not in ("approve", "edit"):
+            return f"❌ Perubahan pada `{target.name}` dibatalkan. File tidak diubah."
+        out = execute_approved(decision["action_id"], lambda: ws.apply_patch_with_backup(target, new_code), current_fingerprint=fingerprint_path(target))
+        if not out["ran"]:
+            why = {"stale": "file berubah sejak diajukan", "already_executed": "sudah pernah diterapkan"}.get(out["reason"], out["error"] or out["reason"])
+            return f"⚠️ `{target.name}` tidak diubah: {why}."
+        return f"✅ `{target.name}` diperbarui. Salinan asli: `{Path(out['result']['backup']).name}`.\n\n" + reply.split("```")[-1].strip()[:600]
 
     def build_graph(self, ctx: ModuleContext) -> CompiledStateGraph:
         workflow = StateGraph(KarsaState)
@@ -111,17 +215,10 @@ class DataScienceCodeModule(BaseKarsaModule):
                     except Exception as e:
                         return {"messages": [AIMessage(content=f"⚠️ Gagal menganalisis dataset: {str(e)}")]}
 
-            # 3. Terminal Test Sandbox Intent
-            if any(kw in cleaned for kw in ["jalankan pytest", "run pytest", "jalankan test", "test kode"]):
-                res = execute_sandboxed_command([sys.executable, "-m", "pytest", "backend/tests/test_state.py", "-q"])
-                out = res["stdout"] or res["stderr"]
-                status_icon = "✅" if res["returncode"] == 0 else "❌"
-                resp = (
-                    f"{status_icon} **Hasil Eksekusi Sandbox Terminal:**\n\n"
-                    f"```text\n{out}\n```\n"
-                    f"Return Code: {res['returncode']}"
-                )
-                return {"messages": [AIMessage(content=resp)]}
+            # 3. Real coding help inside the user's workspace folder (read / explain / patch / run tests)
+            code_reply = self._workspace_intent(ctx, state, last_text, cleaned)
+            if code_reply is not None:
+                return {"messages": [AIMessage(content=code_reply)]}
 
             # 4. LLM Fallback (Senior AI Engineer / Data Science Mentor)
             try:
@@ -132,7 +229,7 @@ class DataScienceCodeModule(BaseKarsaModule):
                     "Berikan contoh kode yang efisien, berikan penjelasan baris per baris, dan gunakan bahasa Indonesia yang ramah."
                 )
                 model = ctx.router.get_model(
-                    tier="tier2_code",
+                    purpose="code",
                     module_name="datascience_code",
                     session_thread_id=ctx.session_thread_id,
                 )

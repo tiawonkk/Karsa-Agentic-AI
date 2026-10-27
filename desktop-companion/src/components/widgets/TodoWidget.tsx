@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Plus, Repeat, Trash2 } from "lucide-react";
+import { Check, Pencil, Plus, Repeat, Trash2 } from "lucide-react";
 import { WidgetSize } from "../../context/WidgetsContext";
 import { OfflineNotice } from "./WidgetBits";
 
@@ -114,6 +114,21 @@ export function useTasks() {
     return send(`/api/v1/tasks/${id}`, { method: "DELETE" });
   };
 
+  /** Edit a task. Returns the server's message when it refuses (so the form can show it), or null on success. */
+  const edit = async (id: number, fields: { title?: string; priority?: number; due_at?: string }): Promise<string | null> => {
+    try {
+      const res = await fetch(`/api/v1/tasks/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return typeof body.detail === "string" ? body.detail : `Gagal menyimpan (${res.status})`;
+      }
+    } catch (_) {
+      return "Server tidak terjangkau";
+    }
+    await refresh();
+    return null;
+  };
+
   const add = (title: string, priority: Priority, recurrence: "none" | Recurrence) =>
     send("/api/v1/tasks", {
       method: "POST",
@@ -143,7 +158,7 @@ export function useTasks() {
     }
   };
 
-  return { tasks, toggle, remove, add, cycleRoutine, dedupe, offline, refresh };
+  return { tasks, toggle, remove, edit, add, cycleRoutine, dedupe, offline, refresh };
 }
 
 const Row: React.FC<{
@@ -151,10 +166,64 @@ const Row: React.FC<{
   onToggle: () => void;
   onRemove?: () => void;
   onRoutine?: () => void;
-}> = ({ t, onToggle, onRemove, onRoutine }) => {
+  onEdit?: (fields: { title?: string; priority?: number; due_at?: string }) => Promise<string | null>;
+}> = ({ t, onToggle, onRemove, onRoutine, onEdit }) => {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(t.title);
+  const [prio, setPrio] = useState<number>(priorityOf(t));
+  const [due, setDue] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const done = t.status === "done";
   const p = P[priorityOf(t)];
   const routine = routineOf(t.recurrence);
+
+  const save = async () => {
+    const fields: { title?: string; priority?: number; due_at?: string } = {};
+    if (title.trim() !== t.title) fields.title = title;
+    if (prio !== priorityOf(t)) fields.priority = prio;
+    if (due.trim()) fields.due_at = due.trim();
+    if (!Object.keys(fields).length) {
+      setEditing(false);
+      return;
+    }
+    const problem = await onEdit?.(fields);
+    if (problem) setError(problem);
+    else {
+      setError(null);
+      setEditing(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          save();
+        }}
+        onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
+        className="rounded-xl border border-accent bg-card p-2 space-y-1.5 text-[11.5px]"
+      >
+        <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Judul tugas" className="w-full h-7 px-2 rounded-lg bg-pill text-ink outline-none" />
+        <div className="flex items-center gap-1.5">
+          <select value={prio} onChange={(e) => setPrio(Number(e.target.value))} aria-label="Prioritas" className="h-7 rounded-lg bg-pill text-ink px-1 outline-none cursor-pointer">
+            {([1, 2, 3, 4] as Priority[]).map((n) => (
+              <option key={n} value={n}>
+                {P[n].label}
+              </option>
+            ))}
+          </select>
+          <input value={due} onChange={(e) => setDue(e.target.value)} placeholder="Tenggat baru: besok, 2026-12-31" aria-label="Tenggat" className="flex-1 min-w-0 h-7 px-2 rounded-lg bg-pill text-ink placeholder:text-ink-muted outline-none" />
+        </div>
+        {error && <div className="text-[10.5px] text-rose-500">{error}</div>}
+        <div className="flex items-center gap-1.5">
+          <button type="submit" className="h-6 px-3 rounded-full bg-accent text-white text-[10.5px] font-semibold cursor-pointer">Simpan</button>
+          <button type="button" onClick={() => (setEditing(false), setError(null), setTitle(t.title))} className="h-6 px-3 rounded-full bg-pill text-ink-2 text-[10.5px] cursor-pointer">Batal</button>
+        </div>
+      </form>
+    );
+  }
+
   return (
     <div
       onClick={onToggle}
@@ -204,6 +273,23 @@ const Row: React.FC<{
           <Repeat className="w-3 h-3" />
         </span>
       )}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setTitle(t.title);
+            setPrio(priorityOf(t));
+            setDue("");
+            setEditing(true);
+          }}
+          className="opacity-0 group-hover:opacity-100 text-ink-muted hover:text-ink transition-opacity flex-shrink-0"
+          title="Ubah tugas"
+          aria-label="Ubah tugas"
+        >
+          <Pencil className="w-3 h-3" />
+        </button>
+      )}
       {onRemove && (
         <button
           type="button"
@@ -223,7 +309,7 @@ const Row: React.FC<{
 };
 
 export const TodoBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
-  const { tasks, toggle, remove, add, cycleRoutine, dedupe, offline, refresh } = useTasks();
+  const { tasks, toggle, remove, edit, add, cycleRoutine, dedupe, offline, refresh } = useTasks();
   const [title, setTitle] = useState("");
   const [prio, setPrio] = useState<Priority>(3);
   const [routine, setRoutine] = useState<"none" | Recurrence>("none");
@@ -383,13 +469,13 @@ export const TodoBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
         ) : (
           <>
             {pending.map((t) => (
-              <Row key={t.id} t={t} onToggle={() => toggle(t)} onRemove={() => remove(t.id)} onRoutine={() => cycleRoutine(t)} />
+              <Row key={t.id} t={t} onToggle={() => toggle(t)} onRemove={() => remove(t.id)} onRoutine={() => cycleRoutine(t)} onEdit={(f) => edit(t.id, f)} />
             ))}
             {done.length > 0 && (
               <div className="pt-1.5 text-[9.5px] font-semibold uppercase tracking-wide text-ink-muted">Selesai · hilang setelah 24 jam</div>
             )}
             {done.map((t) => (
-              <Row key={t.id} t={t} onToggle={() => toggle(t)} onRemove={() => remove(t.id)} onRoutine={() => cycleRoutine(t)} />
+              <Row key={t.id} t={t} onToggle={() => toggle(t)} onRemove={() => remove(t.id)} onRoutine={() => cycleRoutine(t)} onEdit={(f) => edit(t.id, f)} />
             ))}
           </>
         )}

@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { WidgetSize } from "../../context/WidgetsContext";
 import { OfflineNotice } from "./WidgetBits";
+import { LedgerForm, LedgerList } from "./LedgerPanel";
+import { useWidgets } from "../../context/WidgetsContext";
 
 interface Snapshot {
   period: string;
   total_capital_idr: number;
+  total_income_idr?: number;
   total_spent_idr: number;
   total_remaining_idr: number;
   remaining_days: number;
@@ -45,7 +48,7 @@ const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
 };
 
 /** Real budget + transactions from SQLite (/api/v1/finance/report). No report yet means an honest empty state. */
-function useFinance() {
+export function useFinance() {
   const [report, setReport] = useState<Report | null>(null);
   const [offline, setOffline] = useState(false);
   const refresh = useCallback(async () => {
@@ -71,6 +74,9 @@ function useFinance() {
 
 export const FinanceBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
   const { report, offline, refresh } = useFinance();
+  const { setSize } = useWidgets();
+  const [tab, setTab] = useState<"ringkas" | "catat" | "riwayat">("ringkas");
+  const [ledgerKey, setLedgerKey] = useState(0);
   const snap = report?.snapshot;
 
   if (offline && !report) return <OfflineNotice onRetry={refresh} compact={size === "S"} />;
@@ -94,7 +100,7 @@ export const FinanceBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
   const head = (
     <div>
       <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">Daily Safe Spend</div>
-      <div className="font-mono font-bold text-[24px] leading-tight text-ink">
+      <div className="font-mono font-bold text-[21px] leading-tight text-ink">
         {rupiah(snap.daily_safe_spend_idr)}
         <span className="text-[12px] font-medium text-ink-2"> /hari</span>
       </div>
@@ -121,19 +127,48 @@ export const FinanceBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
       <div className="h-full flex flex-col justify-between">
         {head}
         {bar}
-        <div className="text-[10.5px] text-ink-2 font-medium">
-          Sisa kas <span className="font-mono font-bold text-ink">{rupiah(snap.total_remaining_idr)}</span> dari{" "}
-          <span className="font-mono">{rupiah(snap.total_capital_idr)}</span>
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => setSize("finance", "L")} className="flex-1 h-7 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 text-[11px] font-semibold cursor-pointer active:scale-95">
+            − Catat keluar
+          </button>
+          <button type="button" onClick={() => setSize("finance", "L")} className="flex-1 h-7 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[11px] font-semibold cursor-pointer active:scale-95">
+            + Catat masuk
+          </button>
         </div>
       </div>
     );
   }
 
   const txns = (report?.transactions ?? []).slice(0, 6);
+  const changed = () => {
+    setLedgerKey((k) => k + 1);
+    refresh();
+  };
+  const tabs = (
+    <div role="tablist" className="flex items-center gap-1 flex-shrink-0">
+      {([["ringkas", "Ringkas"], ["catat", "Catat"], ["riwayat", "Riwayat"]] as const).map(([id, label]) => (
+        <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`h-6 px-3 rounded-full text-[10.5px] font-semibold cursor-pointer ${tab === id ? "bg-accent text-white" : "bg-pill text-ink-2 hover:text-ink"}`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+  if (tab !== "ringkas") {
+    return (
+      <div className="h-full flex flex-col gap-2 min-h-0">
+        {tabs}
+        <div className="flex-1 min-h-0 overflow-y-auto pr-0.5">
+          {tab === "catat" ? <LedgerForm onSaved={changed} /> : <LedgerList refreshKey={ledgerKey} onChanged={changed} />}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="h-full flex flex-col gap-2.5 overflow-y-auto">
+      {tabs}
       {head}
       {bar}
+      {snap.total_income_idr ? <div className="text-[10.5px] font-mono text-emerald-600 dark:text-emerald-400">+ Pemasukan bulan ini {rupiah(snap.total_income_idr)}</div> : null}
       <div className="space-y-1.5 border-t border-subtle pt-2">
         {Object.entries(snap.categories ?? {}).map(([key, c]) => {
           const meta = CATEGORY_META[key] ?? { label: key, emoji: "•" };
@@ -157,7 +192,7 @@ export const FinanceBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
           <div className="text-[11px] text-ink-muted">Belum ada transaksi. Coba “@Money -25k makan siang”.</div>
         ) : (
           txns.map((t) => (
-            <div key={t.id} className="flex items-center justify-between gap-2 text-[11px]">
+            <div key={`e${t.id}`} className="flex items-center justify-between gap-2 text-[11px]">
               <span className="truncate text-ink">{t.merchant || t.description}</span>
               <span className="font-mono font-semibold text-ink-2 flex-shrink-0">-{rupiahShort(t.amount_idr)}</span>
             </div>

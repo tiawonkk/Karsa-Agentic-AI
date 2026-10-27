@@ -6,6 +6,8 @@ export type ShellMode = "IDLE_EYES" | "COMPACT_PILL" | "PEEK" | "SYSTEM_TOAST" |
 interface NotchShellProps {
   mode: ShellMode;
   isDark?: boolean;
+  /** Sleeping: the colour glow stops drifting (Zero-Heat) */
+  calm?: boolean;
   onClick?: () => void;
   children: React.ReactNode;
 }
@@ -21,25 +23,25 @@ const springPhysics = {
  * NotchShell: the top micro-notch. Every colour comes from the theme variables (--bg-glass, --border-subtle,
  * --text-primary, --shadow-soft), so the Light/Dark toggle repaints it instantly. The concave ears use the same
  * fill as the body so the island flows out of the screen edge.
- * Sizes: idle/compact 145x30, peek 220x40, OSD toast 265x40, expanded bar 380x115.
+ * Sizes: idle/compact 210x52, peek 290x54, OSD toast 265x40, expanded bar 430x150.
  */
-export const NotchShell: React.FC<NotchShellProps> = ({ mode, onClick, children }) => {
-  let widthClass = "w-[145px]";
-  let heightClass = "h-[30px]";
-  let radiusClass = "rounded-b-[18px]";
+export const NotchShell: React.FC<NotchShellProps> = ({ mode, calm = false, onClick, children }) => {
+  let widthClass = "w-[210px]";
+  let heightClass = "h-[52px]";
+  let radiusClass = "rounded-b-[26px]";
 
   if (mode === "PEEK") {
-    widthClass = "w-[220px]";
-    heightClass = "h-[40px]";
-    radiusClass = "rounded-b-[20px]";
+    widthClass = "w-[290px]";
+    heightClass = "h-[54px]";
+    radiusClass = "rounded-b-[26px]";
   } else if (mode === "SYSTEM_TOAST") {
     widthClass = "w-[265px]";
     heightClass = "h-[40px]";
     radiusClass = "rounded-b-[20px]";
   } else if (mode === "EXPANDED") {
-    widthClass = "w-[380px]";
-    heightClass = "h-[115px]";
-    radiusClass = "rounded-b-[24px]";
+    widthClass = "w-[430px]";
+    heightClass = "h-[150px]";
+    radiusClass = "rounded-b-[26px]";
   }
 
   const ear = { fill: "var(--bg-glass)" } as React.CSSProperties;
@@ -53,9 +55,9 @@ export const NotchShell: React.FC<NotchShellProps> = ({ mode, onClick, children 
         background: "var(--bg-glass)",
         color: "var(--text-primary)",
         borderColor: "var(--border-subtle)",
-        boxShadow: "var(--shadow-soft)",
-        backdropFilter: "blur(24px) saturate(160%)",
-        WebkitBackdropFilter: "blur(24px) saturate(160%)",
+        boxShadow: "var(--glass-shadow)",
+        backdropFilter: "blur(30px) saturate(190%)",
+        WebkitBackdropFilter: "blur(30px) saturate(190%)",
       }}
       className={`relative ${widthClass} ${heightClass} ${radiusClass} border border-t-0 select-none font-sans z-50 pointer-events-auto transition-all duration-200`}
     >
@@ -81,8 +83,16 @@ export const NotchShell: React.FC<NotchShellProps> = ({ mode, onClick, children 
         <path d="M 20 0 C 8.954 0 0 8.954 0 20 L 0 0 Z" style={ear} />
       </svg>
 
+      {/* Colour glow inside the glass (aurora): a soft rainbow that drifts slowly; paused while the app sleeps */}
       <div
-        className={`w-full h-full overflow-hidden flex flex-col justify-between ${
+        className={`karsa-aurora absolute inset-0 overflow-hidden pointer-events-none ${radiusClass} ${calm ? "karsa-aurora-calm" : ""} ${
+          mode === "EXPANDED" ? "opacity-60" : ""
+        }`}
+        aria-hidden="true"
+      />
+
+      <div
+        className={`relative w-full h-full overflow-hidden flex flex-col justify-between ${
           mode === "IDLE_EYES" || mode === "COMPACT_PILL" || mode === "PEEK"
             ? "px-3 py-1 justify-center"
             : mode === "SYSTEM_TOAST"

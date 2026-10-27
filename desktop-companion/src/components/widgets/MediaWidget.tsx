@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Music2, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { WidgetSize } from "../../context/WidgetsContext";
 
-interface LyricLine {
+export interface LyricLine {
   time: number;
   text: string;
 }
 
-const parseLrc = (lrc: string): LyricLine[] => {
+export const parseLrc = (lrc: string): LyricLine[] => {
   const out: LyricLine[] = [];
   const re = /\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)/;
   for (const line of lrc.split("\n")) {
@@ -25,7 +25,7 @@ const clock = (s: number) => {
 };
 
 /** Real Windows media session (GSMTC) with real transport controls and a timeline. */
-function useMedia() {
+export function useMedia() {
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [active, setActive] = useState(false);

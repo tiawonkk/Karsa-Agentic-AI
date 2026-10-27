@@ -185,7 +185,7 @@ class StudyDailyModule(BaseKarsaModule):
                     "Berikan panduan yang praktis, aplikatif, dan menyemangati mahasiswa dalam bahasa Indonesia santai."
                 )
                 model = ctx.router.get_model(
-                    tier="tier1_utility",
+                    purpose="study",
                     module_name="study_daily",
                     session_thread_id=ctx.session_thread_id,
                 )

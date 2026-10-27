@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import re
 import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -120,6 +121,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     thread_id: str | None = None
     workspace_path: str | None = None
+    mode: Literal["chat", "code", "research"] = "chat"
 
 
 class ChatResponse(BaseModel):
@@ -172,7 +174,7 @@ class FocusSessionLogRequest(BaseModel):
 
 
 class HydrationLogRequest(BaseModel):
-    amount_ml: int = Field(gt=0)
+    amount_ml: int = Field(gt=0, le=3000)
     daily_target_ml: int | None = Field(default=None, gt=0)
 
 
@@ -493,12 +495,14 @@ def confirm_receipt_endpoint(req: ReceiptConfirmRequest) -> dict[str, Any]:
 
 
 @app.get("/api/v1/finance/report")
-def get_finance_report() -> dict[str, Any]:
+def get_finance_report(period: str | None = None) -> dict[str, Any]:
     """100% real SQLite data for the @Money laporan popover drawer."""
     from backend.core.database import get_db_cursor
     from backend.modules.finance.tools import get_budget_snapshot
 
-    snapshot = get_budget_snapshot()
+    if period is not None and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", period):
+        raise HTTPException(status_code=422, detail="Periode harus berformat YYYY-MM.")
+    snapshot = get_budget_snapshot(period=period)
     with get_db_cursor() as cursor:
         cursor.execute(
             """
@@ -667,6 +671,47 @@ def dashboard_summary() -> dict[str, Any]:
     }
 
 
+NUDGE_SNOOZE_KEY = "nudges.snoozed"
+
+
+def _snoozed_nudges() -> dict[str, str]:
+    from backend.core.database import get_system_setting
+
+    raw = get_system_setting(NUDGE_SNOOZE_KEY, None)
+    return {k: v for k, v in raw.items() if isinstance(v, str)} if isinstance(raw, dict) else {}
+
+
+@app.get("/api/v1/today")
+def today_brief() -> dict[str, Any]:
+    """One calm 'Hari Ini' screen: focus tasks, safe spend, water, and at most 3 rule-based nudges."""
+    from backend.core.today import build_today
+    from backend.modules.finance.tools import get_budget_snapshot
+    from backend.modules.study_daily.tools import list_tasks_from_db
+
+    tasks = [dict(t, hours_left=_task_hours_left(t.get("due_at"))) for t in list_tasks_from_db(status="todo")]
+    return build_today(datetime.datetime.now(), tasks, get_budget_snapshot(), _hydration_summary(), _snoozed_nudges())
+
+
+class SnoozeRequest(BaseModel):
+    hours: int = Field(default=24, ge=1, le=168)
+
+
+@app.post("/api/v1/today/nudges/{nudge_id}/snooze")
+def snooze_nudge(nudge_id: str, req: SnoozeRequest) -> dict[str, Any]:
+    """'Diam dulu': hide one nudge for N hours (default 24)."""
+    import re as _re
+
+    from backend.core.database import set_system_setting
+
+    if not _re.fullmatch(r"[a-z_]{1,32}", nudge_id):
+        raise HTTPException(status_code=422, detail="Nama saran tidak valid.")
+    now = datetime.datetime.now()
+    current = {k: v for k, v in _snoozed_nudges().items() if v > now.isoformat()}  # drop expired entries
+    current[nudge_id] = (now + datetime.timedelta(hours=req.hours)).isoformat()
+    set_system_setting(NUDGE_SNOOZE_KEY, current)
+    return {"snoozed": nudge_id, "until": current[nudge_id]}
+
+
 # -------------------------------------------------------------------------
 # Tasks Management Endpoints (100% Real SQLite Tasks)
 # -------------------------------------------------------------------------
@@ -753,6 +798,7 @@ def chat_endpoint(req: ChatRequest) -> ChatResponse:
         "messages": [HumanMessage(content=req.message)],
         "session_thread_id": thread_id,
         "active_workspace_path": req.workspace_path,
+            "chat_mode": req.mode,
         "hardware_mode": detect_hardware_profile().mode,
         "power_state": "active",
     }
@@ -786,6 +832,7 @@ def chat_stream_endpoint(req: ChatRequest) -> EventSourceResponse:
             "messages": [HumanMessage(content=req.message)],
             "session_thread_id": thread_id,
             "active_workspace_path": req.workspace_path,
+            "chat_mode": req.mode,
             "hardware_mode": detect_hardware_profile().mode,
             "power_state": "active",
         }
@@ -798,7 +845,14 @@ def chat_stream_endpoint(req: ChatRequest) -> EventSourceResponse:
 
         try:
             # Stream events from graph
-            for event in graph.stream(initial_state, config=config, stream_mode="updates"):
+            streamed = False
+            for mode, event in graph.stream(initial_state, config=config, stream_mode=["updates", "custom"]):
+                if mode == "custom":
+                    # tokens written by the node while the model is still answering
+                    if isinstance(event, dict) and event.get("token"):
+                        streamed = True
+                        yield {"event": "token", "data": json.dumps({"text": event["token"]})}
+                    continue
                 for node_name, state_update in event.items():
                     if node_name == "supervisor_triage":
                         yield {
@@ -809,7 +863,7 @@ def chat_stream_endpoint(req: ChatRequest) -> EventSourceResponse:
                         }
                     elif node_name == "subagent_dispatch":
                         msgs = state_update.get("messages", [])
-                        if msgs:
+                        if msgs and not streamed:
                             full_text = str(msgs[-1].content)
                             chunk_size = 32
                             for i in range(0, len(full_text), chunk_size):
@@ -838,6 +892,69 @@ def chat_stream_endpoint(req: ChatRequest) -> EventSourceResponse:
         }
 
     return EventSourceResponse(event_generator())
+
+
+# -------------------------------------------------------------------------
+# Model plan: which AI answers which purpose (chat / research / writing / code ...), free providers, failover
+# -------------------------------------------------------------------------
+
+class PurposeRequest(BaseModel):
+    provider: str | None = None  # None = automatic
+    model: str | None = None
+
+
+class ProviderKeyRequest(BaseModel):
+    provider: str
+    api_key: str = Field(default="", max_length=400)
+
+
+@app.get("/api/v1/settings/plan")
+def get_model_plan() -> dict[str, Any]:
+    return router.plan_overview()
+
+
+@app.put("/api/v1/settings/plan/{purpose}")
+def set_model_plan(purpose: str, req: PurposeRequest) -> dict[str, Any]:
+    try:
+        router.set_purpose_config(purpose, req.provider, req.model)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return router.plan_overview()
+
+
+@app.post("/api/v1/settings/provider-key")
+def save_provider_key(req: ProviderKeyRequest) -> dict[str, Any]:
+    """Save (or clear, with an empty key) the API key of any provider. Keys never come back in responses."""
+    from backend.core.database import set_system_setting
+    from backend.core.llm_router import PROVIDER_CATALOG
+
+    if req.provider not in PROVIDER_CATALOG or req.provider == "ollama":
+        raise HTTPException(status_code=422, detail="Penyedia tidak dikenal.")
+    key = req.api_key.strip()
+    set_system_setting(f"api_key.{req.provider}", key)
+    if hasattr(settings, f"{req.provider}_api_key"):
+        setattr(settings, f"{req.provider}_api_key", key or None)
+    return {"provider": req.provider, "has_key": bool(key), "plan": router.plan_overview()}
+
+
+@app.post("/api/v1/settings/plan/{purpose}/test")
+def test_model_plan(purpose: str) -> dict[str, Any]:
+    """A tiny live call with the model chosen for this purpose: tells the user if it works and how fast it is."""
+    import time as _time
+
+    from langchain_core.messages import HumanMessage as _HM
+
+    from backend.core.llm_router import PURPOSES
+
+    if purpose not in PURPOSES:
+        raise HTTPException(status_code=404, detail="Kegunaan tidak dikenal.")
+    cfg = router.get_purpose_config(purpose)
+    started = _time.perf_counter()
+    try:
+        router.invoke_text(purpose, [_HM(content="Balas satu kata: siap")], module_name="plan_test", timeout=20.0)
+    except Exception as e:
+        return {"ok": False, "provider": cfg["provider"], "model": cfg["model"], "error": str(e)[:200]}
+    return {"ok": True, "provider": cfg["provider"], "model": cfg["model"], "latency_ms": round((_time.perf_counter() - started) * 1000)}
 
 
 # -------------------------------------------------------------------------
@@ -1033,6 +1150,99 @@ def _hydration_summary(daily_target_ml: int | None = None) -> dict[str, Any]:
 
 
 # -------------------------------------------------------------------------
+# Finance ledger: manual expenses AND income (create / read / update / delete)
+# -------------------------------------------------------------------------
+
+class LedgerCreateRequest(BaseModel):
+    kind: Literal["expense", "income"]
+    amount_idr: int
+    category: str | None = None  # expense only
+    description: str | None = None
+    merchant: str | None = None  # expense: shop; income: source label
+    date: str | None = None  # YYYY-MM-DD (default: now)
+
+
+class LedgerUpdateRequest(BaseModel):
+    amount_idr: int | None = None
+    category: str | None = None
+    merchant: str | None = None
+    description: str | None = None
+    label: str | None = None
+    note: str | None = None
+    date: str | None = None
+
+
+def _ledger_call(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    try:
+        return fn(*args, **kwargs)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/api/v1/finance/transactions")
+def list_finance_transactions(period: str | None = None, kind: str | None = None, limit: int = 100) -> dict[str, Any]:
+    from backend.modules.finance import ledger
+
+    items = _ledger_call(ledger.list_ledger, period, kind, limit)
+    return {"count": len(items), "items": items}
+
+
+@app.post("/api/v1/finance/transactions")
+def create_finance_transaction(req: LedgerCreateRequest) -> dict[str, Any]:
+    from backend.modules.finance import ledger
+    from backend.modules.finance.tools import get_budget_snapshot
+
+    if req.kind == "expense":
+        if not req.category:
+            raise HTTPException(status_code=422, detail="Pilih kategori pengeluaran.")
+        item = _ledger_call(ledger.add_expense, req.amount_idr, req.category, req.description, req.merchant, req.date)
+    else:
+        if req.category:
+            raise HTTPException(status_code=422, detail="Pemasukan tidak memakai kategori.")
+        item = _ledger_call(ledger.add_income, req.amount_idr, req.merchant, req.description, req.date)
+    return {"status": "created", "item": item, "budget": get_budget_snapshot(period=item["period"])}
+
+
+@app.put("/api/v1/finance/transactions/{kind}/{entry_id}")
+def update_finance_transaction(kind: str, entry_id: int, req: LedgerUpdateRequest) -> dict[str, Any]:
+    from backend.modules.finance import ledger
+    from backend.modules.finance.tools import get_budget_snapshot
+
+    item = _ledger_call(ledger.update_entry, kind, entry_id, req.model_dump(exclude_unset=True))
+    return {"status": "updated", "item": item, "budget": get_budget_snapshot(period=item["period"])}
+
+
+@app.delete("/api/v1/finance/transactions/{kind}/{entry_id}")
+def delete_finance_transaction(kind: str, entry_id: int) -> dict[str, Any]:
+    from backend.modules.finance import ledger
+    from backend.modules.finance.tools import get_budget_snapshot
+
+    removed = _ledger_call(ledger.delete_entry, kind, entry_id)
+    return {"status": "deleted", "item": removed, "budget": get_budget_snapshot(period=removed["period"])}
+
+
+@app.get("/api/v1/hydration/logs")
+def list_hydration_logs() -> dict[str, Any]:
+    """Today's individual water entries (so one wrong tap can be removed)."""
+    with get_db_cursor() as cursor:
+        cursor.execute(
+            "SELECT id, amount_ml, timestamp FROM hydration_logs WHERE date(timestamp) = date('now') ORDER BY id DESC;"
+        )
+        return {"logs": [dict(r) for r in cursor.fetchall()]}
+
+
+@app.delete("/api/v1/hydration/log/{log_id}")
+def delete_hydration_log(log_id: int) -> dict[str, Any]:
+    with get_db_cursor() as cursor:
+        cursor.execute("DELETE FROM hydration_logs WHERE id = ?;", (log_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Catatan minum tidak ditemukan.")
+    return {"status": "deleted", "summary": _hydration_summary()}
+
+
+# -------------------------------------------------------------------------
 # Notebook: source-grounded workspace (cited Q&A, dataset cleaning, paper drafts)
 # -------------------------------------------------------------------------
 
@@ -1093,7 +1303,10 @@ def get_notebook_endpoint(notebook_id: int) -> dict[str, Any]:
 
 @app.delete("/api/v1/notebooks/{notebook_id}")
 def delete_notebook_endpoint(notebook_id: int) -> dict[str, Any]:
-    notebook_store.delete_notebook(notebook_id)
+    try:
+        notebook_store.delete_notebook(notebook_id)
+    except NotebookError as e:
+        raise _nb_error(e)
     return {"status": "deleted"}
 
 
@@ -1118,7 +1331,10 @@ def add_notebook_text_source_endpoint(notebook_id: int, req: NotebookTextSourceR
 
 @app.delete("/api/v1/notebooks/sources/{source_id}")
 def remove_notebook_source_endpoint(source_id: int) -> dict[str, Any]:
-    notebook_store.remove_source(source_id)
+    try:
+        notebook_store.remove_source(source_id)
+    except NotebookError as e:
+        raise _nb_error(e)
     return {"status": "deleted"}
 
 
@@ -1469,8 +1685,64 @@ def save_wardrobe_item_endpoint(req: WardrobeItemRequest) -> dict[str, Any]:
 @app.delete("/api/v1/wardrobe/items/{item_id}")
 def delete_wardrobe_item_endpoint(item_id: str) -> dict[str, Any]:
     """Delete a custom drawn accessory from SQLite."""
-    deleted = delete_wardrobe_item(item_id)
-    return {"status": "deleted" if deleted else "not_found", "item_id": item_id}
+    if not delete_wardrobe_item(item_id):
+        raise HTTPException(status_code=404, detail="Aksesori tidak ditemukan.")
+    return {"status": "deleted", "item_id": item_id}
+
+
+OUTFIT_PRESETS = frozenset({
+    "party_hat", "crown", "bow", "glasses", "shades", "headphones", "flower", "halo", "wizard_hat", "scarf", "mustache", "star",
+})
+OUTFIT_KEY = "wardrobe.outfit"
+
+
+class OutfitItemModel(BaseModel):
+    id: str = Field(min_length=1, max_length=40)
+    kind: str
+    src: str | None = Field(default=None, max_length=200_000)
+    x: float = Field(ge=-2.5, le=2.5)
+    y: float = Field(ge=-2.5, le=2.5)
+    s: float = Field(ge=0.2, le=3)
+    rot: float = Field(ge=-180, le=180)
+    color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class OutfitRequest(BaseModel):
+    items: list[OutfitItemModel] = Field(default_factory=list, max_length=8)
+
+
+def _validate_outfit(items: list[OutfitItemModel]) -> None:
+    customs = 0
+    for it in items:
+        if it.kind == "custom":
+            customs += 1
+            if not (it.src or "").startswith("data:image/png;base64,"):
+                raise HTTPException(status_code=422, detail="Aksesori gambar harus berupa PNG.")
+        elif it.kind not in OUTFIT_PRESETS:
+            raise HTTPException(status_code=422, detail=f"Aksesori tidak dikenal: {it.kind}")
+        elif it.src is not None:
+            raise HTTPException(status_code=422, detail="Aksesori bawaan tidak membawa gambar.")
+    if customs > 3:
+        raise HTTPException(status_code=422, detail="Maksimal 3 aksesori gambar sekaligus.")
+
+
+@app.get("/api/v1/wardrobe/outfit")
+def get_outfit() -> dict[str, Any]:
+    """What Karsa is wearing (presets + drawn accessories), persisted in SQLite."""
+    from backend.core.database import get_system_setting
+
+    raw = get_system_setting(OUTFIT_KEY, None)
+    items = raw.get("items") if isinstance(raw, dict) else None
+    return {"items": items if isinstance(items, list) else [], "presets": sorted(OUTFIT_PRESETS)}
+
+
+@app.put("/api/v1/wardrobe/outfit")
+def put_outfit(req: OutfitRequest) -> dict[str, Any]:
+    from backend.core.database import set_system_setting
+
+    _validate_outfit(req.items)
+    set_system_setting(OUTFIT_KEY, {"items": [i.model_dump() for i in req.items]})
+    return {"items": [i.model_dump() for i in req.items]}
 
 
 class CreateTaskRequest(BaseModel):
@@ -1488,67 +1760,55 @@ class CreateTaskRequest(BaseModel):
 @app.post("/api/v1/tasks")
 def create_task_endpoint(req: CreateTaskRequest) -> dict[str, Any]:
     """Insert a new task into SQLite with automatic Eisenhower matrix classification."""
-    task = add_task_in_db(
-        title=req.title,
-        description=req.description,
-        course=req.course,
-        task_type=req.task_type,
-        due_at=req.due_at,
-        is_urgent=req.is_urgent,
-        is_important=req.is_important,
-        priority=req.priority,
-        recurrence=req.recurrence,
-    )
+    try:
+        task = add_task_in_db(
+            title=req.title,
+            description=req.description,
+            course=req.course,
+            task_type=req.task_type,
+            due_at=req.due_at,
+            is_urgent=req.is_urgent,
+            is_important=req.is_important,
+            priority=req.priority,
+            recurrence=req.recurrence,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return {"status": "created", "task": task}
 
 
 @app.delete("/api/v1/tasks/{task_id}")
 def delete_task_endpoint(task_id: int) -> dict[str, Any]:
-    """Delete a task permanently from SQLite."""
+    """Delete a task permanently from SQLite (404 when it does not exist)."""
     from backend.modules.study_daily.tools import delete_task_in_db
     try:
-        deleted = delete_task_in_db(task_id)
-        return {"status": "deleted" if deleted else "not_found", "id": task_id}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+        delete_task_in_db(task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"status": "deleted", "id": task_id}
 
 
-@app.get("/api/v1/finance/report")
-def get_finance_report_endpoint(period: str | None = None) -> dict[str, Any]:
-    """Get full financial report from SQLite monthly_budget and financial_transactions."""
-    if not period:
-        period = get_current_period()
-    snapshot = get_budget_snapshot(period=period)
+class UpdateTaskRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    course: str | None = None
+    task_type: str | None = None
+    due_at: str | None = None
+    priority: int | None = None
 
-    with get_db_cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT id, period, txn_date, amount_idr, category, merchant, description, source
-            FROM financial_transactions
-            WHERE period = ?
-            ORDER BY id DESC
-            LIMIT 50;
-            """,
-            (period,),
-        )
-        txns = [dict(row) for row in cursor.fetchall()]
 
-        cursor.execute(
-            """
-            SELECT category, SUM(amount_idr) as total_spent, COUNT(*) as count
-            FROM financial_transactions
-            WHERE period = ?
-            GROUP BY category;
-            """,
-            (period,),
-        )
-        category_spending = [dict(row) for row in cursor.fetchall()]
+@app.put("/api/v1/tasks/{task_id}")
+def update_task_endpoint(task_id: int, req: UpdateTaskRequest) -> dict[str, Any]:
+    """Edit a task (rename, new deadline, new priority ...). Only fields that are sent change."""
+    from backend.modules.study_daily.tools import update_task_in_db
 
-    return {
-        "snapshot": snapshot,
-        "transactions": txns,
-        "category_spending": category_spending,
-    }
+    fields = req.model_dump(exclude_unset=True)
+    try:
+        return {"status": "updated", "task": update_task_in_db(task_id, fields)}
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 # -------------------------------------------------------------------------

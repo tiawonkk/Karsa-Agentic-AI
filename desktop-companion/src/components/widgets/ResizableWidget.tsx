@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { ArrowLeftRight, Maximize2, Minus, X } from "lucide-react";
 import {
   MAX_DIMS,
@@ -21,7 +21,6 @@ interface WidgetContainerProps {
 }
 
 type DropZone = null | "left" | "right" | "dock";
-const DETACH_MARGIN = 8;
 
 const EDGE_PX = 36;
 const headerBtn =
@@ -48,80 +47,48 @@ const zoneAt = (cx: number, cy: number): DropZone => {
  *   double-click it to hide it. Hidden widgets come back from the dock launcher (press its icon again to hide).
  */
 export const WidgetContainer: React.FC<WidgetContainerProps> = ({ id, title, icon, accent, children }) => {
-  const { widgets, setSize, toggleDock, closeWidget, setPos, setCustom, setDragHint, undockAt } = useWidgets();
+  const { widgets, setSize, toggleDock, closeWidget, setPos, setCustom } = useWidgets();
   const st = widgets[id];
   const dims = st.custom ?? SIZE_DIMS[st.size];
   const size: WidgetSize = st.custom ? sizeFromDims(dims.w, dims.h) : st.size;
+  const [zone, setZone] = useState<DropZone>(null);
+  const [dockBox, setDockBox] = useState<DOMRect | null>(null);
 
-  /**
-   * One drag path for both states. A floating widget follows the pointer immediately. A docked widget stays put until
-   * the pointer leaves the dock panel, then detaches (undocks) and keeps following the same drag, so you can pull a
-   * widget straight out of the Dock. Drop zones: onto the dock = dock, against the left screen edge = hide.
-   */
   const startDrag = useCallback(
     (e: React.PointerEvent) => {
-      if (e.button !== 0) return;
+      if (st.docked || e.button !== 0) return;
       if ((e.target as HTMLElement).closest("button, input, textarea, select, a")) return;
-      const frameEl = (e.currentTarget as HTMLElement).closest("[data-widget]") as HTMLElement | null;
-      const rect = frameEl?.getBoundingClientRect();
-      // where inside the widget the pointer grabbed it (kept so the card does not jump under the cursor)
-      const grab = st.docked
-        ? { x: Math.min(e.clientX - (rect?.left ?? e.clientX), dims.w - 40), y: e.clientY - (rect?.top ?? e.clientY) }
-        : { x: e.clientX - st.x, y: e.clientY - st.y };
-      let detached = !st.docked;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const origin = { x: st.x, y: st.y };
       let last = { x: e.clientX, y: e.clientY };
-
-      const place = (cx: number, cy: number) => ({
-        // horizontally the card may slide partly off-screen so it can be pushed against an edge to hide it
-        x: Math.min(Math.max(-dims.w + 40, cx - grab.x), window.innerWidth - 40),
-        y: Math.min(Math.max(0, cy - grab.y), window.innerHeight - 40),
-      });
+      setDockBox(dockRect());
 
       const move = (ev: PointerEvent) => {
         last = { x: ev.clientX, y: ev.clientY };
-        if (!detached) {
-          const d = dockRect();
-          const outside =
-            !d ||
-            ev.clientX < d.left - DETACH_MARGIN ||
-            ev.clientX > d.right + DETACH_MARGIN ||
-            ev.clientY < d.top - DETACH_MARGIN ||
-            ev.clientY > d.bottom + DETACH_MARGIN;
-          if (!outside) return;
-          detached = true;
-          const p = place(ev.clientX, ev.clientY);
-          undockAt(id, p.x, p.y);
-        }
-        const p = place(ev.clientX, ev.clientY);
-        setPos(id, p.x, p.y);
-        const z = zoneAt(ev.clientX, ev.clientY);
-        const d = dockRect();
-        setDragHint(
-          z
-            ? { zone: z, accent, dockBox: d ? { left: d.left, top: d.top, width: d.width, height: d.height } : null }
-            : null
-        );
+        // Horizontally the card may slide partly off-screen so it can be pushed against an edge to hide it
+        const x = Math.min(Math.max(-dims.w + 40, origin.x + ev.clientX - startX), window.innerWidth - 40);
+        const y = Math.min(Math.max(0, origin.y + ev.clientY - startY), window.innerHeight - 40);
+        setPos(id, x, y);
+        setZone(zoneAt(ev.clientX, ev.clientY));
       };
       const up = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
-        setDragHint(null);
-        if (!detached) return; // a plain click on a docked header: nothing to do
         const z = zoneAt(last.x, last.y);
+        setZone(null);
+        setDockBox(null);
         // Always leave a visible, in-bounds position behind (so the widget reappears on screen when reopened)
-        const p = place(last.x, last.y);
-        setPos(
-          id,
-          Math.max(8, Math.min(p.x, window.innerWidth - dims.w - 8)),
-          Math.max(8, Math.min(p.y, window.innerHeight - dims.h - 8))
-        );
+        const clampX = (x: number) => Math.max(8, Math.min(x, window.innerWidth - dims.w - 8));
+        const clampY = (y: number) => Math.max(8, Math.min(y, window.innerHeight - dims.h - 8));
+        setPos(id, clampX(origin.x + last.x - startX), clampY(origin.y + last.y - startY));
         if (z === "dock") toggleDock(id);
         else if (z === "left" || z === "right") closeWidget(id);
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
     },
-    [accent, closeWidget, dims.h, dims.w, id, setDragHint, setPos, st.docked, st.x, st.y, toggleDock, undockAt]
+    [closeWidget, dims.h, dims.w, id, setPos, st.docked, st.x, st.y, toggleDock]
   );
 
   const hideOnDoubleClick = (e: React.MouseEvent) => {
@@ -189,12 +156,10 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({ id, title, ico
         <div
           onPointerDown={startDrag}
           onDoubleClick={hideOnDoubleClick}
-          title={
-            st.docked
-              ? "Tarik keluar dari Dock untuk melepasnya"
-              : "Geser ke tepi kiri layar, atau klik dua kali, untuk menyembunyikan"
-          }
-          className="flex items-center justify-between gap-1 px-3 h-[34px] flex-shrink-0 border-b border-subtle cursor-grab active:cursor-grabbing"
+          title={st.docked ? undefined : "Geser ke tepi kiri layar, atau klik dua kali, untuk menyembunyikan"}
+          className={`flex items-center justify-between gap-1 px-3 h-[34px] flex-shrink-0 border-b border-subtle ${
+            st.docked ? "" : "cursor-grab active:cursor-grabbing"
+          }`}
         >
           <div className="flex items-center gap-1.5 min-w-0 text-ink">
             <span className="flex-shrink-0">{icon}</span>
@@ -253,20 +218,14 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({ id, title, ico
     </div>
   );
 
-  // The S-pill controls sit on the pill's top-LEFT edge, above its text and clear of its action button on the
-  // right (play / drink / send), so nothing is ever covered.
-  const pillBtn =
-    "w-4 h-4 rounded-full flex items-center justify-center text-ink-2 hover:text-ink hover:bg-pill cursor-pointer";
+  // The S-pill controls live OUTSIDE the clipped frame, on its top edge, so they never cover the pill's own button.
   const pillControls =
     size === "S" ? (
-      <div className="absolute -top-2.5 left-3 z-10 hidden group-hover:flex items-center gap-px rounded-full karsa-surface p-px pointer-events-auto">
-        <button type="button" onClick={() => toggleDock(id)} className={pillBtn} title={st.docked ? "Lepas ke layar (floating)" : "Masukkan ke Layar Kanan"} aria-label={st.docked ? "Lepas ke layar" : "Masukkan ke Layar Kanan"}>
-          <ArrowLeftRight className="w-2.5 h-2.5" strokeWidth={2.5} />
-        </button>
-        <button type="button" onClick={() => setSize(id, "M")} className={pillBtn} title="Perbesar (M)" aria-label="Perbesar">
+      <div className="absolute -top-2.5 right-3 z-10 hidden group-hover:flex items-center gap-0.5 rounded-full karsa-surface p-0.5 pointer-events-auto">
+        <button type="button" onClick={() => setSize(id, "M")} className="w-5 h-5 rounded-full flex items-center justify-center text-ink-2 hover:text-ink hover:bg-pill cursor-pointer" title="Perbesar (M)" aria-label="Perbesar">
           <Maximize2 className="w-2.5 h-2.5" strokeWidth={2.5} />
         </button>
-        <button type="button" onClick={() => closeWidget(id)} className={`${pillBtn} hover:!bg-rose-500 hover:!text-white`} title="Tutup widget" aria-label="Tutup">
+        <button type="button" onClick={() => closeWidget(id)} className="w-5 h-5 rounded-full flex items-center justify-center text-ink-2 hover:!bg-rose-500 hover:!text-white cursor-pointer" title="Tutup widget" aria-label="Tutup">
           <X className="w-2.5 h-2.5" strokeWidth={2.5} />
         </button>
       </div>
@@ -284,6 +243,32 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({ id, title, ico
   return (
     <div className="fixed z-[45] pointer-events-none" style={{ left: st.x, top: st.y }}>
       {wrapped}
+
+      {/* Drop-zone hints while dragging */}
+      {zone === "dock" && dockBox && (
+        <div
+          className="fixed rounded-2xl ring-2 pointer-events-none flex items-end justify-center pb-3"
+          style={{ left: dockBox.left, top: dockBox.top, width: dockBox.width, height: dockBox.height, background: `${accent}22`, boxShadow: `0 0 0 2px ${accent}` }}
+        >
+          <span className="px-3 py-1 rounded-full text-[11px] font-semibold text-white" style={{ background: accent }}>
+            Lepas untuk memasukkan ke Dock
+          </span>
+        </div>
+      )}
+      {(zone === "left" || zone === "right") && (
+        <>
+          <div
+            className="fixed top-0 bottom-0 w-2 pointer-events-none"
+            style={{ [zone]: 0, background: accent, boxShadow: `0 0 18px 4px ${accent}` } as React.CSSProperties}
+          />
+          <span
+            className="fixed top-1/2 -translate-y-1/2 px-3 py-1 rounded-full text-[11px] font-semibold text-white pointer-events-none"
+            style={{ [zone]: 14, background: accent } as React.CSSProperties}
+          >
+            Lepas untuk menyembunyikan
+          </span>
+        </>
+      )}
     </div>
   );
 };

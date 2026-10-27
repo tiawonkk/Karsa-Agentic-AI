@@ -29,51 +29,115 @@
  * ------------------------------------------------------------------ */
 :root,
 [data-theme="light"] {
-  --bg-glass: rgba(250, 250, 252, 0.88);
-  --bg-card: rgba(241, 245, 249, 0.92);
-  --bg-pill: rgba(226, 232, 240, 0.75);
-  --border-subtle: rgba(148, 163, 184, 0.28);
-  --text-primary: #0F172A;
-  --text-secondary: #475569;
-  --text-muted: #64748B;
-  --accent-primary: #0EA5E9;
-  --shadow-soft: 0 10px 30px -6px rgba(15, 23, 42, 0.10);
-  --bg-widget: rgba(255, 255, 255, 0.97);
-  --border-strong: rgba(100, 116, 139, 0.38);
-  --shadow-widget: 0 18px 44px -10px rgba(15, 23, 42, 0.30), 0 2px 6px rgba(15, 23, 42, 0.10);
+  /* Karsa palette, light: clean white surfaces with cool-neutral greys + brick terracotta accent */
+  --bg-glass: rgba(255, 255, 255, 0.60);
+  --bg-card: rgba(255, 255, 255, 0.55);
+  --bg-pill: rgba(110, 100, 170, 0.12);
+  --border-subtle: rgba(120, 110, 170, 0.22);
+  /* macOS-style glass: translucent white tinted lavender -> peach, bright top edge, soft coloured shadow */
+  --glass-tint: linear-gradient(135deg, rgba(255,255,255,0.74) 0%, rgba(239,233,255,0.56) 48%, rgba(255,234,226,0.58) 100%);
+  --glass-border: rgba(255, 255, 255, 0.85);
+  --glass-shadow: 0 22px 56px -14px rgba(80, 64, 140, 0.38), 0 2px 8px rgba(80, 64, 140, 0.10), inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(120,110,170,0.14);
+  --aurora-a: 24;
+  --aurora-b: 330;
+  --aurora-strength: 0.9;
+  --text-primary: #1B1824;
+  --text-secondary: #55526A;
+  --text-muted: #6A667A;
+  --accent-primary: #C2410C;
+  --accent-glow: #F59E0B;
+  --batik: rgba(194, 65, 12, 0.07);
+  --shadow-soft: 0 10px 30px -6px rgba(30, 30, 60, 0.12);
+  --bg-widget: rgba(255, 255, 255, 0.70);
+  --border-strong: rgba(110, 100, 170, 0.30);
+  --shadow-widget: 0 18px 44px -10px rgba(30, 30, 60, 0.26), 0 2px 6px rgba(30, 30, 60, 0.08);
 }
 
 .dark,
 [data-theme="dark"] {
-  --bg-glass: rgba(18, 18, 23, 0.86);
-  --bg-card: rgba(28, 28, 36, 0.90);
-  --bg-pill: rgba(39, 39, 49, 0.80);
-  --border-subtle: rgba(255, 255, 255, 0.10);
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --text-muted: #64748B;
-  --accent-primary: #38BDF8;
+  /* Karsa palette, dark: ink-plum night + the same terracotta, lantern amber for glow */
+  --bg-glass: rgba(24, 18, 38, 0.68);
+  --bg-card: rgba(255, 255, 255, 0.06);
+  --bg-pill: rgba(255, 255, 255, 0.09);
+  --border-subtle: rgba(255, 255, 255, 0.14);
+  --glass-tint: linear-gradient(135deg, rgba(52,40,84,0.66) 0%, rgba(30,24,50,0.62) 50%, rgba(66,34,62,0.60) 100%);
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --glass-shadow: 0 24px 60px -14px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -1px 0 rgba(255,255,255,0.04);
+  --aurora-a: 24;
+  --aurora-b: 330;
+  --aurora-strength: 0.78;
+  --text-primary: #FBF4EA;
+  --text-secondary: #BFB0A0;
+  --text-muted: #A09386;
+  --accent-primary: #C2410C;
+  --accent-glow: #FBBF24;
+  --batik: rgba(251, 191, 36, 0.10);
   --shadow-soft: 0 14px 36px -6px rgba(0, 0, 0, 0.55);
-  --bg-widget: rgba(27, 27, 36, 0.97);
-  --border-strong: rgba(255, 255, 255, 0.24);
+  --bg-widget: rgba(30, 24, 48, 0.66);
+  --border-strong: rgba(255, 255, 255, 0.20);
   --shadow-widget: 0 18px 44px -8px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+/* Signature texture: a faint kawung (batik) lattice. Put .karsa-batik on a positioned element; content stays above it. */
+.karsa-batik {
+  position: relative;
+  isolation: isolate;
+}
+.karsa-batik::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--batik);
+  pointer-events: none;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cg fill='none' stroke='black' stroke-width='1.1'%3E%3Cellipse cx='14' cy='7' rx='4' ry='7'/%3E%3Cellipse cx='14' cy='21' rx='4' ry='7'/%3E%3Cellipse cx='7' cy='14' rx='7' ry='4'/%3E%3Cellipse cx='21' cy='14' rx='7' ry='4'/%3E%3C/g%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cg fill='none' stroke='black' stroke-width='1.1'%3E%3Cellipse cx='14' cy='7' rx='4' ry='7'/%3E%3Cellipse cx='14' cy='21' rx='4' ry='7'/%3E%3Cellipse cx='7' cy='14' rx='7' ry='4'/%3E%3Cellipse cx='21' cy='14' rx='7' ry='4'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-size: 28px 28px;
+  mask-size: 28px 28px;
+}
+
+/* Display voice for greetings and the wordmark */
+.font-display {
+  font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 /* Widgets: near-opaque with a clear edge and a module-coloured top accent, so they stay legible on any desktop */
 .karsa-widget {
-  background: var(--bg-widget);
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-widget);
+  background: var(--glass-tint);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
 }
 
 /* Shared surface for the notch, dock, widgets and popups */
 .karsa-surface {
-  background: var(--bg-glass);
+  background: var(--glass-tint);
   color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+}
+
+/* Colour glow inside the notch glass (like the reference): two soft blobs whose hue drifts slowly */
+.karsa-aurora {
+  background:
+    radial-gradient(58% 130% at 32% 75%, hsla(var(--aurora-a), 98%, 62%, var(--aurora-strength)), transparent 72%),
+    radial-gradient(58% 130% at 70% 80%, hsla(var(--aurora-b), 98%, 66%, var(--aurora-strength)), transparent 72%),
+    radial-gradient(50% 80% at 50% -10%, rgba(255, 255, 255, 0.25), transparent 70%);
+  animation: karsa-hue-drift 22s linear infinite;
+}
+.karsa-aurora-calm { animation-play-state: paused; opacity: 0.45; }
+.karsa-hue { animation: karsa-hue-drift 22s linear infinite; }
+@keyframes karsa-hue-drift {
+  from { filter: hue-rotate(0deg); }
+  to { filter: hue-rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .karsa-aurora, .karsa-hue { animation: none; }
 }
 
 html, body, #root {

@@ -68,6 +68,18 @@ CREATE TABLE IF NOT EXISTS financial_transactions (
 );
 CREATE INDEX IF NOT EXISTS idx_fin_txn_period_cat ON financial_transactions(period, category);
 
+-- 4b. Income (manual: allowance, salary, scholarship ...). Spread over the 5 categories in the budget snapshot.
+CREATE TABLE IF NOT EXISTS financial_income (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    period          TEXT    NOT NULL,
+    txn_date        TEXT    NOT NULL,
+    amount_idr      INTEGER NOT NULL CHECK (amount_idr > 0),
+    label           TEXT    NOT NULL DEFAULT 'Pemasukan',
+    note            TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_fin_income_period ON financial_income(period);
+
 -- 5. Tasks (Eisenhower Matrix with Generated Column)
 CREATE TABLE IF NOT EXISTS tasks (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

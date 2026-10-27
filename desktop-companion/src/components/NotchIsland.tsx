@@ -7,7 +7,6 @@ import { IdleEyesView } from "./IdleEyesView";
 import { CompactPillView } from "./CompactPillView";
 import { SystemToastView, SystemToastData } from "./SystemToastView";
 import { NotchBar } from "./NotchBar";
-import { RightSideDock } from "./RightSideDock";
 import { FloatingWidgets } from "./widgets/WidgetLayer";
 import { ChatBridge } from "./widgets/ChatWidget";
 import { useWaterReminder } from "./widgets/WaterWidget";
@@ -19,6 +18,10 @@ import { WardrobeStudio } from "./WardrobeStudio";
 import { SettingsModal, NotchSize } from "./SettingsModal";
 import { HitlApprovalPill, PendingApprovalData } from "./HitlApprovalPill";
 import { announceApprovalsChanged } from "./widgets/ApprovalsWidget";
+import { RightSideDock } from "./RightSideDock";
+import { KarsaStage } from "./KarsaStage";
+import { OutfitItem, sanitizeOutfit, newItem } from "../lib/jelly";
+import { useJellyMoodSync } from "../hooks/useJellyMoodSync";
 import { FloatingPopupCard } from "./FloatingPopupCard";
 import { ReceiptPreviewCard, isImageFile } from "./ReceiptPreviewCard";
 import { PeekView } from "./PeekView";
@@ -48,6 +51,7 @@ export const NotchIsland: React.FC = () => {
   // Appearance: the theme (light/dark/system) is owned by ThemeContext and drives the CSS variables
   const { themeMode, setThemeMode, isDark } = useTheme();
   const { openWidget } = useWidgets();
+  const [stageOpen, setStageOpen] = useState(false);
   const [notchSize, setNotchSize] = useState<NotchSize>(
     () => (localStorage.getItem("karsa_notch_size") as NotchSize) || "compact"
   );
@@ -59,9 +63,20 @@ export const NotchIsland: React.FC = () => {
   const [eyeColor, setEyeColor] = useState(
     () => localStorage.getItem("karsa_eye_color") || "#18181B"
   );
-  const [activeAccessory, setActiveAccessory] = useState<string | null>(
-    () => localStorage.getItem("karsa_active_accessory") || null
-  );
+  // What Karsa wears: presets + drawn accessories. localStorage is the quick cache, SQLite the source of truth.
+  const [outfit, setOutfit] = useState<OutfitItem[]>(() => {
+    try {
+      const list = sanitizeOutfit(JSON.parse(localStorage.getItem("karsa_outfit_v2") || "null"));
+      if (list.length) return list;
+      const legacy = localStorage.getItem("karsa_active_accessory"); // the old single drawn accessory
+      if (legacy && legacy.startsWith("data:image/png")) {
+        const it = newItem("custom", legacy);
+        if (it) return [it];
+      }
+    } catch (_) {}
+    return [];
+  });
+  const outfitLoaded = useRef(false);
 
   // File drag & drop
   const [, setIsDraggingFile] = useState(false);
@@ -143,13 +158,53 @@ export const NotchIsland: React.FC = () => {
     localStorage.setItem("karsa_eye_color", eyeColor);
   }, [eyeColor]);
 
+  // Alt+K: invite Karsa to the screen (and back)
   useEffect(() => {
-    if (activeAccessory) {
-      localStorage.setItem("karsa_active_accessory", activeAccessory);
-    } else {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setStageOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Outfit: load the saved one from the backend once, then save every change (debounced)
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/v1/wardrobe/outfit")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        const saved = sanitizeOutfit(d.items);
+        if (saved.length) setOutfit(saved);
+      })
+      .catch(() => {})
+      .finally(() => {
+        outfitLoaded.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("karsa_outfit_v2", JSON.stringify(outfit));
       localStorage.removeItem("karsa_active_accessory");
-    }
-  }, [activeAccessory]);
+    } catch (_) {}
+    if (!outfitLoaded.current) return;
+    const t = setTimeout(() => {
+      fetch("/api/v1/wardrobe/outfit", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: outfit }),
+      }).catch(() => {});
+    }, 450);
+    return () => clearTimeout(t);
+  }, [outfit]);
+
 
   // Helper to trigger hardware toast and auto-revert after 2.5 seconds to Coucou Mascot Face
   const triggerHardwareToast = (toast: SystemToastData) => {
@@ -372,7 +427,7 @@ export const NotchIsland: React.FC = () => {
     }
 
     // 2. Open Chat Drawer and stream assistant response
-    openWidget("chat");
+    if (!stageOpen) openWidget("chat"); // the big Karsa shows the answer itself
     const newHistory = [...chatHistory, { role: "user" as const, text }];
     setChatHistory(newHistory);
     setIsStreaming(true);
@@ -500,6 +555,8 @@ export const NotchIsland: React.FC = () => {
     }
   };
 
+  useJellyMoodSync(isStreaming, [...chatHistory].reverse().find((m) => m.role === "assistant")?.text ?? "", pendingApprovals.length);
+
   const chat: ChatBridge = {
     messages: chatHistory,
     isStreaming,
@@ -531,7 +588,7 @@ export const NotchIsland: React.FC = () => {
       }}
     >
       {/* Dynamic Island V3 NotchShell Chassis with S-Curve Ears */}
-      <NotchShell mode={shellMode} isDark={isDark}>
+      <NotchShell mode={shellMode} isDark={isDark} calm={isSleeping}>
         {/* Mode 1: AI Glowing Eyes (190px x 38px) */}
         {shellMode === "IDLE_EYES" && (
           <div
@@ -610,7 +667,7 @@ export const NotchIsland: React.FC = () => {
             isDark={isDark}
             mascotColor={mascotColor}
             eyeColor={eyeColor}
-            activeAccessory={activeAccessory}
+            outfit={outfit}
             isSleeping={isSleeping}
             focusTrigger={focusSearchTrigger}
             onSubmit={handleSubmit}
@@ -618,6 +675,7 @@ export const NotchIsland: React.FC = () => {
               setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL")
             }
             onOpenWardrobe={() => setActivePopover("WARDROBE")}
+            onOpenStage={() => setStageOpen(true)}
           />
         )}
       </NotchShell>
@@ -626,12 +684,20 @@ export const NotchIsland: React.FC = () => {
       {!isSleeping &&
         createPortal(
         <>
-          <RightSideDock
-            chat={chat}
-            onOpenSettings={() => setActivePopover("SETTINGS")}
-            onOpenWardrobe={() => setActivePopover("WARDROBE")}
-          />
+          <RightSideDock chat={chat} onOpenSettings={() => setActivePopover("SETTINGS")} onOpenWardrobe={() => setActivePopover("WARDROBE")} />
           <FloatingWidgets chat={chat} onOpenSettings={() => setActivePopover("SETTINGS")} />
+          <KarsaStage
+            open={stageOpen}
+            onClose={() => setStageOpen(false)}
+            chat={chat}
+            approvals={pendingApprovals}
+            onApprovalDecision={handleApprovalDecision}
+            onDropFile={handleDropFiles}
+            isDark={isDark}
+            mascotColor={mascotColor}
+            eyeColor={eyeColor}
+            outfit={outfit}
+          />
         </>,
         // portaled: the notch container has a transform, which would otherwise re-anchor `fixed` children to it
         document.body
@@ -684,8 +750,8 @@ export const NotchIsland: React.FC = () => {
           onColorChange={setMascotColor}
           currentEyeColor={eyeColor}
           onEyeColorChange={setEyeColor}
-          activeAccessory={activeAccessory}
-          onSelectAccessory={setActiveAccessory}
+          outfit={outfit}
+          onOutfitChange={setOutfit}
           isDark={isDark}
         />
 
@@ -708,7 +774,7 @@ export const NotchIsland: React.FC = () => {
         </AnimatePresence>
 
         {/* Floating Pending HITL Approval Card */}
-        {pendingApprovals.length > 0 && (
+        {pendingApprovals.length > 0 && !stageOpen && (
           <div className="mt-2 space-y-2 max-w-md w-full">
             {/* One card at a time: its Enter/E/Esc shortcuts must never answer several approvals at once */}
             <HitlApprovalPill

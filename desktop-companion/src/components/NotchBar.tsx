@@ -11,8 +11,10 @@ import {
   Monitor,
   PenTool,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { MascotCanvas } from "./MascotCanvas";
+import { OutfitItem } from "../lib/jelly";
 import { ThemeToggle } from "../context/ThemeContext";
 
 interface AppItem {
@@ -24,12 +26,13 @@ interface NotchBarProps {
   isDark: boolean;
   mascotColor: string;
   eyeColor: string;
-  activeAccessory: string | null;
+  outfit: OutfitItem[];
   isSleeping: boolean;
   focusTrigger: number;
   onSubmit: (text: string) => void;
   onCollapse: () => void;
   onOpenWardrobe: () => void;
+  onOpenStage: () => void;
 }
 
 const DIRECTIVES: Array<{ cmd: string; icon: React.ReactNode; hint: string }> = [
@@ -52,12 +55,13 @@ export const NotchBar: React.FC<NotchBarProps> = ({
   isDark,
   mascotColor,
   eyeColor,
-  activeAccessory,
+  outfit,
   isSleeping,
   focusTrigger,
   onSubmit,
   onCollapse,
   onOpenWardrobe,
+  onOpenStage,
 }) => {
   const [value, setValue] = useState("");
   const [time, setTime] = useState("");
@@ -132,14 +136,14 @@ export const NotchBar: React.FC<NotchBarProps> = ({
     <div className="w-full h-full flex items-center gap-2 text-ink">
       <div
         onClick={onOpenWardrobe}
-        className="w-[96px] h-full flex-shrink-0 flex items-center justify-center cursor-pointer active:scale-95 transition-transform pointer-events-auto"
+        className="w-[150px] h-full flex-shrink-0 flex items-center justify-center cursor-pointer active:scale-95 transition-transform pointer-events-auto"
         title="Karsa — klik untuk Wardrobe 🎨"
       >
         <MascotCanvas
-          size={40}
+          size={68}
           bodyColor={mascotColor}
           eyeColor={eyeColor}
-          accessoryImage={activeAccessory}
+          outfit={outfit}
           isSleeping={isSleeping}
           isDark={isDark}
           showStarOrbit={false}
@@ -150,6 +154,16 @@ export const NotchBar: React.FC<NotchBarProps> = ({
         <div className="flex items-center justify-between">
           <span className="font-mono font-bold text-[12px] tracking-tight">{time}</span>
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onOpenStage}
+              className="h-6 px-2 rounded-full bg-orange-500/90 text-white hover:brightness-110 flex items-center gap-1 text-[10.5px] font-semibold cursor-pointer"
+              title="Panggil Karsa ke layar (Alt+K)"
+              aria-label="Panggil Karsa"
+            >
+              <Sparkles className="w-3 h-3" />
+              Karsa
+            </button>
             <ThemeToggle />
             <button
               type="button"

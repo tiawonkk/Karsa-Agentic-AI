@@ -16,18 +16,31 @@ from backend.core.state import ToolError
 PaperSource = Literal["arxiv", "semantic_scholar", "crossref", "local_pdf"]
 
 
+class ResearchSearchError(RuntimeError):
+    """A paper source could not be reached or answered with an error (different from 'no results')."""
+
+
+def _fetch(url: str) -> httpx.Response:
+    """GET with redirects (arXiv answers http:// with a redirect to https://) and a clear error when it fails."""
+    try:
+        with httpx.Client(timeout=12.0, follow_redirects=True, headers={"User-Agent": "KarsaAgenticAI/0.1.0"}) as client:
+            resp = client.get(url)
+    except httpx.HTTPError as e:
+        raise ResearchSearchError(f"tidak bisa menghubungi sumber ({type(e).__name__})") from e
+    if resp.status_code == 429:
+        raise ResearchSearchError("sumber membatasi permintaan (terlalu sering), coba lagi sebentar lagi")
+    if resp.status_code != 200:
+        raise ResearchSearchError(f"sumber membalas HTTP {resp.status_code}")
+    return resp
+
+
 def query_arxiv_api(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     """Query arXiv public API and parse Atom XML feed into clean paper metadata."""
     encoded_query = urllib.parse.quote(query.strip())
-    url = f"http://export.arxiv.org/api/query?search_query=all:{encoded_query}&start=0&max_results={max_results}"
+    url = f"https://export.arxiv.org/api/query?search_query=all:{encoded_query}&start=0&max_results={max(1, min(int(max_results), 10))}"
 
+    content = _fetch(url).text
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.get(url)
-            if resp.status_code != 200:
-                return []
-            content = resp.text
-
         # Lightweight XML parsing without heavy external XML dependencies
         entries = re.findall(r"<entry>(.*?)</entry>", content, re.DOTALL)
         results = []
@@ -59,21 +72,17 @@ def query_arxiv_api(query: str, max_results: int = 5) -> list[dict[str, Any]]:
                 "pdf_path": pdf_url,
             })
         return results
-    except Exception:
-        return []
+    except (ValueError, TypeError) as e:
+        raise ResearchSearchError(f"jawaban sumber tidak terbaca ({e})") from e
 
 
 def query_crossref_api(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     """Query Crossref REST API for scientific works."""
     encoded = urllib.parse.quote(query.strip())
-    url = f"https://api.crossref.org/works?query={encoded}&rows={max_results}"
+    url = f"https://api.crossref.org/works?query={encoded}&rows={max(1, min(int(max_results), 10))}"
 
     try:
-        with httpx.Client(timeout=10.0, headers={"User-Agent": "KarsaAgenticAI/0.1.0"}) as client:
-            resp = client.get(url)
-            if resp.status_code != 200:
-                return []
-            data = resp.json()
+        data = _fetch(url).json()
 
         items = data.get("message", {}).get("items", [])
         results = []
@@ -107,8 +116,8 @@ def query_crossref_api(query: str, max_results: int = 5) -> list[dict[str, Any]]
                 "pdf_path": "",
             })
         return results
-    except Exception:
-        return []
+    except (ValueError, TypeError, KeyError) as e:
+        raise ResearchSearchError(f"jawaban sumber tidak terbaca ({e})") from e
 
 
 def search_and_cache_papers(
@@ -121,27 +130,23 @@ def search_and_cache_papers(
     if not query.strip():
         raise ValueError("Kata kunci pencarian paper tidak boleh kosong.")
 
+    if source not in ("arxiv", "crossref"):
+        raise ValueError("Sumber paper harus 'arxiv' atau 'crossref'.")
     papers: list[dict[str, Any]] = []
-    if source == "arxiv":
-        papers = query_arxiv_api(query, max_results)
-    elif source == "crossref":
-        papers = query_crossref_api(query, max_results)
+    errors: list[str] = []
+    # the chosen source first; if it is down, the other one (and the caller is told which source answered)
+    order = ["arxiv", "crossref"] if source == "arxiv" else ["crossref", "arxiv"]
+    for name in order:
+        try:
+            papers = (query_arxiv_api if name == "arxiv" else query_crossref_api)(query, max_results)
+            break
+        except ResearchSearchError as e:
+            errors.append(f"{name}: {e}")
+    else:
+        raise ResearchSearchError("Pencarian paper gagal. " + "; ".join(errors))
 
-    # If API fails or is offline, generate structured academic research entry for student
     if not papers:
-        papers = [
-            {
-                "source": source,
-                "external_id": f"cached_{hash(query) % 100000}",
-                "doi": f"10.1145/{hash(query) % 100000}",
-                "title": f"Recent Advances in {query.title()}: A Comprehensive Survey",
-                "authors": "A. Rahman, S. Pratama, M. Chen",
-                "publication_year": 2025,
-                "abstract": f"This paper examines the state-of-the-art developments in {query}, providing architectural patterns, benchmarks, and limitations.",
-                "url": f"https://arxiv.org/abs/2501.{abs(hash(query)) % 90000 + 10000}",
-                "pdf_path": "",
-            }
-        ]
+        return []  # genuinely nothing found: never invent a paper
 
     # Cache into SQLite academic_papers table
     with get_db_cursor(db_path) as cursor:
@@ -252,12 +257,14 @@ def search_papers_tool(query: str, source: PaperSource = "arxiv", max_results: i
     """Cari jurnal ilmiah dan paper terkini dari arXiv / Crossref secara terpadu."""
     try:
         papers = search_and_cache_papers(query=query, source=source, max_results=max_results)
+        if not papers:
+            return {"status": "success", "count": 0, "papers": [], "note": "Tidak ada paper yang cocok; coba kata kunci lain."}
         return {"status": "success", "count": len(papers), "papers": papers}
     except Exception as e:
         return ToolError(
             error_code="PAPER_SEARCH_FAILED",
             message=str(e),
-            actionable_hint="Gunakan kata kunci bahasa Inggris yang spesifik untuk arXiv.",
+            hint="Gunakan kata kunci bahasa Inggris yang spesifik untuk arXiv.",
         ).model_dump()
 
 
@@ -277,5 +284,5 @@ def extract_paper_parameters_tool(paper_title: str, abstract: str = "") -> dict[
         return ToolError(
             error_code="PAPER_EXTRACTION_FAILED",
             message=str(e),
-            actionable_hint="Pastikan judul paper jelas.",
+            hint="Pastikan judul paper jelas.",
         ).model_dump()

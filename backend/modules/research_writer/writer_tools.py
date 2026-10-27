@@ -268,7 +268,7 @@ def generate_imrad_draft_tool(
         return ToolError(
             error_code="IMRAD_GEN_FAILED",
             message=str(e),
-            actionable_hint="Pastikan topik penelitian terisi.",
+            hint="Pastikan topik penelitian terisi.",
         ).model_dump()
 
 
@@ -295,11 +295,11 @@ def compile_docx_tool(
         return ToolError(
             error_code="DOCX_EXISTS_REQUIRES_HITL",
             message=str(fe),
-            actionable_hint="Konfirmasi izin overwrite via tombol di Notch Companion.",
+            hint="Konfirmasi izin overwrite via tombol di Notch Companion.",
         ).model_dump()
     except Exception as e:
         return ToolError(
             error_code="DOCX_COMPILE_FAILED",
             message=str(e),
-            actionable_hint="Periksa nama file dan hak akses direktori.",
+            hint="Periksa nama file dan hak akses direktori.",
         ).model_dump()

@@ -134,6 +134,9 @@ def _parse_money_directive(arg: str, parsed: ParsedDirective) -> None:
         )
         return
 
+    if _money_subcommand(lower_arg, parsed):
+        return
+
     # Check for expense format: "-25k makan siang" or "25rb makan siang"
     is_income = arg.startswith("+")
     cleaned_num_text = arg.lstrip("+-").strip()
@@ -148,21 +151,38 @@ def _parse_money_directive(arg: str, parsed: ParsedDirective) -> None:
 
     nominal = parse_indonesian_nominal(cleaned_num_text)
     if nominal:
+        from backend.modules.finance import ledger
+
         if is_income:
             parsed.action = "log_income"
-            parsed.details = {"amount": nominal, "description": cleaned_num_text}
-            parsed.execution_result = f"✅ Pemasukan **{format_rupiah(nominal)}** berhasil dicatat."
+            label = re.sub(r"(?i)\b\d[\d.,]*\s*(?:rb|ribu|k|jt|juta|rupiah)?\b", "", cleaned_num_text).strip(" -,.") or None
+            try:
+                item = ledger.add_income(nominal, label, None)
+            except ValueError as e:
+                parsed.execution_result = f"⚠️ Pemasukan tidak dicatat: {e}"
+                return
+            snapshot = get_budget_snapshot()
+            parsed.details = {"transaction": item, "snapshot": snapshot}
+            parsed.execution_result = (
+                f"✅ **Pemasukan Dicatat:** {format_rupiah(nominal)} ({item['label']})\n"
+                f"• Sisa saldo bulan ini: {format_rupiah(snapshot['total_remaining_idr'])}\n"
+                f"💡 **Daily Safe Spend:** {format_rupiah(snapshot['daily_safe_spend_idr'])} / hari"
+            )
         else:
             # Expense
             category = classify_category_deterministic(cleaned_num_text) or "makanan"
             parsed.action = "log_expense"
-            txn_res = record_transaction_in_db(
-                amount_idr=nominal,
-                category=category,
-                description=cleaned_num_text,
-                source="text",
-                used_llm=0,
-            )
+            try:
+                txn_res = record_transaction_in_db(
+                    amount_idr=nominal,
+                    category=category,
+                    description=cleaned_num_text,
+                    source="text",
+                    used_llm=0,
+                )
+            except ValueError as e:
+                parsed.execution_result = f"⚠️ Pengeluaran tidak dicatat: {e}"
+                return
             snapshot = get_budget_snapshot()
             rem_cat = snapshot["categories"].get(category, {}).get("remaining", 0)
             daily_safe = snapshot.get("daily_safe_spend_idr", 0)
@@ -180,11 +200,196 @@ def _parse_money_directive(arg: str, parsed: ParsedDirective) -> None:
             )
 
 
+_MONEY_HELP = (
+    "💰 **Cara memakai @Money**\n"
+    "• `@Money -25k makan siang` catat pengeluaran\n"
+    "• `@Money +500k uang saku` catat pemasukan\n"
+    "• `@Money riwayat` lihat 5 catatan terakhir\n"
+    "• `@Money hapus terakhir` batalkan catatan terakhir\n"
+    "• `@Money ubah terakhir 30k` atau `ubah terakhir kategori kesenangan`\n"
+    "• `@Money laporan` ringkasan bulan ini"
+)
+
+
+def _entry_line(e: dict[str, Any]) -> str:
+    sign = "+" if e["kind"] == "income" else "-"
+    cat = f" ({e['category']})" if e.get("category") else ""
+    return f"• #{e['kind'][0].upper()}{e['id']} {e['txn_date'][:10]} {sign}{format_rupiah(e['amount_idr'])} {e['label']}{cat}"
+
+
+def _last_entry() -> dict[str, Any] | None:
+    from backend.modules.finance import ledger
+
+    return ledger.last_entry()
+
+
+def _money_subcommand(lower_arg: str, parsed: ParsedDirective) -> bool:
+    """riwayat / hapus terakhir / ubah terakhir ...; returns True when it handled the text."""
+    from backend.modules.finance import ledger
+
+    if not lower_arg or lower_arg in ("bantuan", "help"):
+        parsed.action = "money_help"
+        parsed.execution_result = _MONEY_HELP
+        return True
+    if lower_arg in ("riwayat", "daftar", "history"):
+        parsed.action = "money_history"
+        items = ledger.list_ledger(limit=5)
+        parsed.execution_result = (
+            "🧾 **5 Catatan Terakhir**\n" + "\n".join(_entry_line(e) for e in items) if items else "Belum ada catatan uang bulan ini."
+        )
+        return True
+    if lower_arg in ("hapus terakhir", "batal", "undo", "batalkan terakhir"):
+        parsed.action = "money_delete_last"
+        last = _last_entry()
+        if not last:
+            parsed.execution_result = "Tidak ada catatan untuk dihapus."
+            return True
+        ledger.delete_entry(last["kind"], last["id"])
+        parsed.execution_result = f"🗑️ Dihapus: {_entry_line(last)[2:]}\n• Saldo dikembalikan seperti sebelum catatan ini."
+        return True
+    if lower_arg.startswith(("ubah terakhir", "koreksi")):
+        parsed.action = "money_edit_last"
+        last = _last_entry()
+        if not last:
+            parsed.execution_result = "Tidak ada catatan untuk diubah."
+            return True
+        rest = lower_arg.replace("ubah terakhir", "").replace("koreksi", "").strip()
+        fields: dict[str, Any] = {}
+        cat_match = re.search(r"kategori\s+(\w+)", rest)
+        if cat_match:
+            if last["kind"] == "income":
+                parsed.execution_result = "⚠️ Pemasukan tidak punya kategori."
+                return True
+            fields["category"] = cat_match.group(1)
+            rest = rest.replace(cat_match.group(0), "").strip()
+        nominal = parse_indonesian_nominal(rest) if rest else None
+        if nominal:
+            fields["amount_idr"] = nominal
+        if not fields:
+            parsed.execution_result = "Mau diubah jadi apa? Contoh: `@Money ubah terakhir 30k` atau `@Money ubah terakhir kategori kesenangan`."
+            return True
+        try:
+            new = ledger.update_entry(last["kind"], last["id"], fields)
+        except ValueError as e:
+            parsed.execution_result = f"⚠️ Tidak diubah: {e}"
+            return True
+        parsed.execution_result = f"✏️ Diubah: {_entry_line(new)[2:]}"
+        return True
+    return False
+
+
+_TODO_HELP = (
+    "✅ **Cara memakai @Todo**\n"
+    "• `@Todo laprak kimia besok sore` atau `@Todo tambah laprak kimia` buat tugas\n"
+    "• `@Todo daftar` lihat tugas yang belum selesai\n"
+    "• `@Todo selesai 3` atau `@Todo selesai laprak` centang\n"
+    "• `@Todo hapus 3` hapus\n"
+    "• `@Todo ubah 3 judul baru` ganti judul, `@Todo prioritas 3 1` ganti prioritas (1 kritis - 4 santai)"
+)
+
+
+def _find_task(ref: str) -> tuple[dict[str, Any] | None, str | None]:
+    """A task by id or by a unique piece of its title. Returns (task, problem message)."""
+    from backend.modules.study_daily.tools import list_tasks_from_db
+
+    pending = list_tasks_from_db(status="todo")
+    ref = ref.strip().lstrip("#")
+    if ref.isdigit():
+        for t in pending:
+            if t["id"] == int(ref):
+                return t, None
+        return None, f"Tugas #{ref} tidak ditemukan (mungkin sudah selesai atau dihapus)."
+    hits = [t for t in pending if ref.lower() in t["title"].lower()]
+    if len(hits) == 1:
+        return hits[0], None
+    if not hits:
+        return None, f"Tidak ada tugas yang cocok dengan “{ref}”."
+    return None, "Ada beberapa yang cocok, pakai nomornya:\n" + "\n".join(f"• #{t['id']} {t['title']}" for t in hits[:6])
+
+
+def _todo_subcommand(arg: str, parsed: ParsedDirective) -> bool:
+    from backend.modules.study_daily.tools import complete_task_in_db, delete_task_in_db, list_tasks_from_db, update_task_in_db
+
+    low = arg.lower().strip()
+    if not low or low in ("bantuan", "help"):
+        parsed.action = "todo_help"
+        parsed.execution_result = _TODO_HELP
+        return True
+    if low in ("daftar", "list", "lihat"):
+        parsed.action = "todo_list"
+        rows = list_tasks_from_db(status="todo")[:8]
+        parsed.execution_result = (
+            "📋 **Tugas Belum Selesai**\n" + "\n".join(f"• #{t['id']} {t['title']}" + (f" (⏰ {t['due_at']})" if t.get("due_at") else "") for t in rows)
+            if rows
+            else "Tidak ada tugas yang menunggu. 🎉"
+        )
+        return True
+
+    m = re.match(r"(?i)^(selesai|centang|done)\s+(.+)$", arg.strip())
+    if m:
+        parsed.action = "todo_complete"
+        task, problem = _find_task(m.group(2))
+        if not task:
+            parsed.execution_result = f"⚠️ {problem}"
+            return True
+        complete_task_in_db(task["id"])
+        parsed.execution_result = f"☑️ Selesai: **{task['title']}** (tetap terlihat 24 jam, bisa dibatalkan dari widget Todo)."
+        return True
+    m = re.match(r"(?i)^(hapus|buang)\s+(.+)$", arg.strip())
+    if m:
+        parsed.action = "todo_delete"
+        task, problem = _find_task(m.group(2))
+        if not task:
+            parsed.execution_result = (
+                f"⚠️ {problem}\nUntuk membuat tugas berjudul “{arg.strip()}”, ketik: `@Todo tambah {arg.strip()}`"
+            )
+            return True
+        delete_task_in_db(task["id"])
+        parsed.execution_result = f"🗑️ Tugas dihapus: **{task['title']}**"
+        return True
+    m = re.match(r"(?i)^ubah\s+#?(\d+)\s+(.+)$", arg.strip())
+    if m:
+        parsed.action = "todo_edit"
+        task, problem = _find_task(m.group(1))
+        if not task:
+            parsed.execution_result = f"⚠️ {problem}"
+            return True
+        try:
+            new = update_task_in_db(task["id"], {"title": m.group(2)})
+        except ValueError as e:
+            parsed.execution_result = f"⚠️ Tidak diubah: {e}"
+            return True
+        parsed.execution_result = f"✏️ Judul diubah: **{new['title']}**"
+        return True
+    m = re.match(r"(?i)^prioritas\s+#?(\d+)\s+(\d)$", arg.strip())
+    if m:
+        parsed.action = "todo_priority"
+        task, problem = _find_task(m.group(1))
+        if not task:
+            parsed.execution_result = f"⚠️ {problem}"
+            return True
+        try:
+            new = update_task_in_db(task["id"], {"priority": int(m.group(2))})
+        except ValueError as e:
+            parsed.execution_result = f"⚠️ Tidak diubah: {e}"
+            return True
+        parsed.execution_result = f"🎯 **{new['title']}** sekarang kuadran {new['quadrant']}."
+        return True
+    return False
+
+
 def _parse_todo_directive(arg: str, parsed: ParsedDirective) -> None:
+    if _todo_subcommand(arg, parsed):
+        return
+    arg = re.sub(r"(?i)^tambah\s+", "", arg.strip())
     parsed.action = "create_task"
     due_dt = parse_due_date_natural(arg)
     due_str = due_dt.strftime("%Y-%m-%d %H:%M:%S") if due_dt else None
-    res = add_task_in_db(title=arg, due_at=due_str)
+    try:
+        res = add_task_in_db(title=arg, due_at=due_str)
+    except ValueError as e:
+        parsed.execution_result = f"⚠️ Tugas tidak disimpan: {e}"
+        return
     parsed.details = res
     due_display = f"Deadline: **{due_str}**" if due_str else "Tanpa deadline spesifik"
     parsed.execution_result = (
