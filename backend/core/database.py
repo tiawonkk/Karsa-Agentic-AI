@@ -228,6 +228,32 @@ CREATE TABLE IF NOT EXISTS hydration_settings (
     updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+-- 14b. Studio: project intelligence hub (@Project) and business incubator (@Business); `data` is a JSON document
+CREATE TABLE IF NOT EXISTS studio_projects (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL CHECK (kind IN ('project','business')),
+    name        TEXT    NOT NULL,
+    topic       TEXT,
+    data        TEXT    NOT NULL DEFAULT '{}',
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_studio_projects_kind ON studio_projects(kind, updated_at);
+
+-- 14c. PRD-to-App builds: PRD -> plan (approved by the user) -> files -> build/test loop
+CREATE TABLE IF NOT EXISTS app_builds (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    name               TEXT    NOT NULL,
+    prd                TEXT    NOT NULL,
+    target_dir         TEXT    NOT NULL,
+    status             TEXT    NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','planned','approved','building','done','failed')),
+    plan               TEXT    NOT NULL DEFAULT '{}',
+    log                TEXT    NOT NULL DEFAULT '[]',
+    source_project_id  INTEGER,
+    created_at         TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at         TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 -- 15. Notebooks (source-grounded workspace: sources -> chunks -> cited answers, cleaned datasets, paper drafts)
 CREATE TABLE IF NOT EXISTS notebooks (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -372,6 +398,9 @@ def initialize_master_database(db_path: Path | str | None = None) -> None:
             )
             conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations (version) VALUES (6);"
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version) VALUES (7);"
             )
             
             # Seed default system settings
