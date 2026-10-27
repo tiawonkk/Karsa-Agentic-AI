@@ -1,9 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-export type WidgetId = "pomodoro" | "water" | "todo" | "finance" | "media" | "chat" | "shelf" | "notebook" | "approvals" | "today";
+export type WidgetId = "pomodoro" | "water" | "todo" | "finance" | "media" | "chat" | "shelf" | "notebook" | "approvals" | "today" | "studio";
 export type WidgetSize = "S" | "M" | "L";
 
-export const WIDGET_IDS: WidgetId[] = ["pomodoro", "water", "todo", "finance", "media", "chat", "notebook", "approvals", "today", "shelf"];
+export const WIDGET_IDS: WidgetId[] = ["pomodoro", "water", "todo", "finance", "media", "chat", "notebook", "approvals", "today", "shelf", "studio"];
 
 /** Preset sizes: S = nano pill, M = compact card, L = expanded view. */
 export const SIZE_DIMS: Record<WidgetSize, { w: number; h: number }> = {
@@ -53,6 +53,7 @@ const defaults = (): WidgetMap => {
     media: base("M", 4),
     chat: base("L", 5),
     shelf: base("M", 9),
+    studio: { ...base("L", 10), docked: false, custom: { w: 460, h: 560 } },
     // heavy modules start as floating windows (too wide for the 275px dock); Hari Ini opens in the dock
     notebook: { ...base("L", 6), docked: false, custom: { w: 420, h: 480 } },
     approvals: { ...base("L", 7), docked: false, custom: { w: 360, h: 480 } },
@@ -85,6 +86,16 @@ const load = (): WidgetMap => {
   return d;
 };
 
+/** A floating widget that is opened must be fully reachable: pull it back inside the window if it would hang off an edge. */
+const onScreen = (s: WidgetState): Partial<WidgetState> => {
+  if (s.docked) return {};
+  const d = s.custom ?? SIZE_DIMS[s.size];
+  return {
+    x: Math.max(12, Math.min(s.x, window.innerWidth - d.w - 12)),
+    y: Math.max(56, Math.min(s.y, window.innerHeight - d.h - 12)),
+  };
+};
+
 interface WidgetsContextType {
   widgets: WidgetMap;
   toggleOpen: (id: WidgetId) => void;
@@ -114,8 +125,8 @@ export const WidgetsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const value = useMemo<WidgetsContextType>(
     () => ({
       widgets,
-      toggleOpen: (id) => patch(id, (s) => ({ open: !s.open })),
-      openWidget: (id) => patch(id, { open: true }),
+      toggleOpen: (id) => patch(id, (s) => (s.open ? { open: false } : { open: true, ...onScreen(s) })),
+      openWidget: (id) => patch(id, (s) => ({ open: true, ...onScreen(s) })),
       closeWidget: (id) => patch(id, { open: false }),
       setSize: (id, size) => patch(id, { size, custom: null }),
       toggleDock: (id) =>

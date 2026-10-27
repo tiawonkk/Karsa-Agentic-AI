@@ -149,7 +149,7 @@ export const RightSideDock: React.FC<RightSideDockProps> = ({ chat, onOpenSettin
         </div>
 
         {/* Quick widget launcher */}
-        <div className="flex items-center justify-between px-3 py-2 border-t border-subtle flex-shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-y-1.5 px-3 py-2 border-t border-subtle flex-shrink-0">
           {WIDGET_IDS.map((id: WidgetId) => {
             const def = WIDGET_DEFS[id];
             const open = widgets[id].open;

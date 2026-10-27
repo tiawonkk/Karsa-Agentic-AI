@@ -108,6 +108,8 @@ def supervisor_triage_node(state: KarsaState) -> dict[str, Any]:
     # 0. Tier 0: Directive Command Match (@Money, @Todo, @Search, @Write, @Data, @Code, @Screen)
     from backend.orchestrator.directive_parser import parse_directive
     directive = parse_directive(last_user_msg)
+    if directive.is_directive and directive.action.startswith("studio_"):
+        return {"active_module": None}  # executed deterministically by the dispatch node (no module, no LLM)
     if directive.is_directive and directive.target_module in enabled_modules:
         return {"active_module": directive.target_module}
 
@@ -257,8 +259,14 @@ def subagent_dispatch_node(state: KarsaState) -> dict[str, Any]:
                 last_user = last_user_raw.lower()
                 break
 
+        from backend.orchestrator import studio_directives
+        from backend.orchestrator.directive_parser import parse_directive as _pd
+
+        studio = _pd(last_user_raw)
         canned = _canned_reply(last_user)
-        if canned is not None:
+        if studio.is_directive and studio.action.startswith("studio_"):
+            response_text = studio_directives.execute(studio.action, studio.details)
+        elif canned is not None:
             response_text = canned
         else:
             # earlier turns (without the question itself), compacted once they pass ~3000 tokens

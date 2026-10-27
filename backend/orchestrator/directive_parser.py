@@ -22,7 +22,7 @@ from backend.modules.study_daily.tools import (
 )
 
 DirectiveType = Literal[
-    "money", "todo", "study", "course", "search", "write", "data", "code", "screen"
+    "money", "todo", "study", "course", "search", "write", "data", "code", "screen", "project", "business", "notebook"
 ]
 
 DIRECTIVE_MODULE_MAP: dict[str, str] = {
@@ -38,7 +38,7 @@ DIRECTIVE_MODULE_MAP: dict[str, str] = {
 }
 
 DIRECTIVE_REGEX = re.compile(
-    r"^@(Money|Todo|Study|Course|Search|Write|Data|Code|Screen)\b\s*(.*)$",
+    r"^@(Money|Todo|Study|Course|Search|Write|Data|Code|Screen|Project|Business|Notebook)\b\s*(.*)$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -111,7 +111,12 @@ def parse_directive(text: str) -> ParsedDirective:
     elif cmd in ("data", "code"):
         parsed.action = "profile_dataset" if cmd == "data" else "execute_code"
         parsed.details = {"target": arg}
-    # 7. @Screen Handling
+    # 7. Studio quick-capture (@Project, @Business, @Notebook): pure parsing, the supervisor executes it once
+    elif cmd in ("project", "business", "notebook"):
+        from backend.orchestrator.studio_directives import parse_args
+
+        parsed.action, parsed.details = parse_args(cmd, arg)
+    # 8. @Screen Handling
     elif cmd == "screen":
         parsed.action = "screen_assist"
         parsed.details = {"query": arg or "analisis layar aktif"}
