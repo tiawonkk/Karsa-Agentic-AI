@@ -23,7 +23,7 @@ const springPhysics = {
  * NotchShell: the top micro-notch. Every colour comes from the theme variables (--bg-glass, --border-subtle,
  * --text-primary, --shadow-soft), so the Light/Dark toggle repaints it instantly. The concave ears use the same
  * fill as the body so the island flows out of the screen edge.
- * Sizes: idle/compact 210x52, peek 290x54, OSD toast 265x40, expanded bar 430x150.
+ * Sizes: idle/compact 210x52, peek 290x54, OSD toast 265x40, expanded bar 560x262.
  */
 export const NotchShell: React.FC<NotchShellProps> = ({ mode, calm = false, onClick, children }) => {
   let widthClass = "w-[210px]";
@@ -39,12 +39,12 @@ export const NotchShell: React.FC<NotchShellProps> = ({ mode, calm = false, onCl
     heightClass = "h-[40px]";
     radiusClass = "rounded-b-[20px]";
   } else if (mode === "EXPANDED") {
-    widthClass = "w-[430px]";
-    heightClass = "h-[150px]";
-    radiusClass = "rounded-b-[26px]";
+    widthClass = "w-[560px]";
+    heightClass = "h-[262px]";
+    radiusClass = "rounded-b-[34px]";
   }
 
-  const ear = { fill: "var(--bg-glass)" } as React.CSSProperties;
+  const ear = { fill: "var(--island-bg)" } as React.CSSProperties;
 
   return (
     <motion.div
@@ -52,7 +52,7 @@ export const NotchShell: React.FC<NotchShellProps> = ({ mode, calm = false, onCl
       transition={springPhysics}
       onClick={onClick}
       style={{
-        background: "var(--bg-glass)",
+        background: "var(--island-bg)",
         color: "var(--text-primary)",
         borderColor: "var(--border-subtle)",
         boxShadow: "var(--glass-shadow)",
@@ -97,7 +97,7 @@ export const NotchShell: React.FC<NotchShellProps> = ({ mode, calm = false, onCl
             ? "px-3 py-1 justify-center"
             : mode === "SYSTEM_TOAST"
             ? "px-3.5 py-1.5 justify-center"
-            : "px-3.5 py-2"
+            : "px-5 pt-2.5 pb-2"
         }`}
       >
         {children}

@@ -68,6 +68,12 @@ Request flow: `api/main.py` → supervisor graph → specialist module sub-graph
 - **Phone** (`core/mobile.py`, `api/mobile.py`, `m.html`, `src/mobile/`): any non-loopback caller needs the pairing token for `/api/`. Run `run_karsa_phone.bat` (host 0.0.0.0) to make the laptop reachable; Settings > HP shows the QR.
 - **Desktop shell** (`desktop-companion/src-tauri/`): transparent full-screen window, click-through decided by a cursor thread from the rectangles the frontend reports (`lib/tauriBridge.ts`: elements with `pointer-events-auto` or `data-hit`). Build with `npm install` then `npm run tauri build` (needs Rust + MSVC Build Tools).
 
+### UI zones (session #57)
+
+- **Top Island = daily modules only.** `IslandDeck.tsx` holds the slides (Omni `NotchBar`, Pomodoro, Media+lyrics, Water, Todo, Shelf, Lainnya) and reuses the widget `*Body` components at size M; `Widget` pulls one out as a floating S/M/L widget. Expanded island is 560x262 (`NotchShell`).
+- **Right dock = Agentic AI only.** `RightAgenticDock.tsx` (chat + HITL banner + automation cards) and `FullAppStudioModal.tsx` (Alt+Shift+K, state in `stores/studioMode.ts`). The automation list and panels live in `components/studio/AutomationPanel.tsx`; add new automations there. Do not put daily widgets in the dock; no widget is docked any more (`docked` is always false).
+- Style with `.karsa-surface karsa-panel` (28px outer), `.karsa-nested` (20px inner card), `.karsa-grad` (primary), `Stepper` for pipelines. Tokens: `--island-bg`, `--bg-card`, `--card-shadow`.
+
 ### Project principles (from docs/decision log)
 
 - **Deterministic first**: do the parsing, math and file compilation in Python before reaching for an LLM. Examples: Indonesian amounts such as "25rb" → 25000, Daily Safe Spend, Pandas profiling, and python-docx compilation. Never send raw datasets to an LLM, only compact profile metadata (< 2 KB).

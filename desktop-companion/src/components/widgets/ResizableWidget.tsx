@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { ArrowLeftRight, Maximize2, Minus, X } from "lucide-react";
+import { Maximize2, Minus, X } from "lucide-react";
 import {
   MAX_DIMS,
   MIN_DIMS,
@@ -26,8 +26,7 @@ const EDGE_PX = 36;
 const headerBtn =
   "w-[22px] h-[22px] rounded-full flex items-center justify-center text-ink-2 hover:text-ink hover:bg-pill transition-colors cursor-pointer";
 
-const dockRect = (): DOMRect | null =>
-  document.querySelector('aside[aria-label="Layar Kanan"]')?.getBoundingClientRect() ?? null;
+const dockRect = (): DOMRect | null => null; // the right side is the Agentic workspace now: widgets no longer dock there
 
 const zoneAt = (cx: number, cy: number): DropZone => {
   const d = dockRect();
@@ -142,7 +141,7 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({ id, title, ico
       onPointerDown={size === "S" ? startDrag : undefined}
       onDoubleClick={size === "S" ? hideOnDoubleClick : undefined}
       data-widget={id}
-      className="karsa-surface karsa-widget relative flex flex-col overflow-hidden rounded-2xl pointer-events-auto font-sans select-none"
+      className="karsa-surface karsa-widget relative flex flex-col overflow-hidden rounded-[28px] pointer-events-auto font-sans select-none"
       style={{ width: "100%", height: dims.h }}
     >
       {/* module accent line */}
@@ -167,15 +166,6 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({ id, title, ico
           </div>
           <div className="flex items-center gap-0.5 flex-shrink-0">
             {sizeButtons}
-            <button
-              type="button"
-              onClick={() => toggleDock(id)}
-              className={headerBtn}
-              title={st.docked ? "Lepas ke layar (floating)" : "Masukkan ke Layar Kanan"}
-              aria-label={st.docked ? "Lepas ke layar" : "Masukkan ke Layar Kanan"}
-            >
-              <ArrowLeftRight className="w-3 h-3" strokeWidth={2.25} />
-            </button>
             <button
               type="button"
               onClick={() => setSize(id, "S")}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Check, FileCode2, Hammer, Plus, Trash2, X } from "lucide-react";
-import { Btn, Card, ErrorLine, Hint, Label, api, area, field, useAction } from "./shared";
+import { Btn, Card, ErrorLine, Hint, Label, Stepper, api, area, field, useAction } from "./shared";
 
 interface Build {
   id: number;
@@ -20,6 +20,11 @@ const STATUS: Record<Build["status"], string> = {
   done: "Selesai",
   failed: "Gagal",
 };
+
+const STEPS = ["Parse PRD", "Arsitektur", "Coding", "Build & Test", "100% Siap"];
+/** Where a build is in the pipeline: the plan covers steps 1-2, approval starts coding, verification is step 4. */
+const stepOf = (s: Build["status"]): number =>
+  s === "draft" ? 0 : s === "planned" ? 2 : s === "approved" ? 2 : s === "building" ? 3 : s === "failed" ? 3 : STEPS.length;
 
 /** PRD-to-App: PRD -> plan -> your approval -> files -> build/test with self-correction. */
 export const BuildPanel: React.FC<{ refreshKey: number }> = ({ refreshKey }) => {
@@ -89,6 +94,8 @@ export const BuildPanel: React.FC<{ refreshKey: number }> = ({ refreshKey }) => 
             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${b.status === "done" ? "bg-emerald-500/15 text-emerald-500" : b.status === "failed" ? "bg-rose-500/15 text-rose-500" : "bg-pill text-ink-2"}`}>{STATUS[b.status]}</span>
             <button type="button" onClick={() => del.run(b.id)} disabled={b.status === "building"} className="w-7 h-7 rounded-full text-ink-2 hover:bg-rose-500 hover:text-white flex items-center justify-center cursor-pointer disabled:opacity-40" aria-label={`Hapus ${b.name}`}><Trash2 className="w-3 h-3" /></button>
           </div>
+
+          <Stepper steps={STEPS} current={stepOf(b.status)} failedAt={b.status === "failed" ? 3 : null} />
 
           {open === b.id && (
             <div className="space-y-2">

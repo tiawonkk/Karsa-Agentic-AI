@@ -30,25 +30,27 @@
 :root,
 [data-theme="light"] {
   /* Karsa palette, light: clean white surfaces with cool-neutral greys + brick terracotta accent */
-  --bg-glass: rgba(255, 255, 255, 0.60);
-  --bg-card: rgba(255, 255, 255, 0.55);
+  --bg-glass: rgba(248, 249, 252, 0.88);
+  --island-bg: rgba(248, 249, 252, 0.92);
+  --bg-card: #FFFFFF;
+  --card-shadow: 0 1px 2px rgba(15,23,42,0.06), 0 8px 22px -8px rgba(15,23,42,0.14);
   --bg-pill: rgba(110, 100, 170, 0.12);
   --border-subtle: rgba(120, 110, 170, 0.22);
   /* macOS-style glass: translucent white tinted lavender -> peach, bright top edge, soft coloured shadow */
-  --glass-tint: linear-gradient(135deg, rgba(255,255,255,0.74) 0%, rgba(239,233,255,0.56) 48%, rgba(255,234,226,0.58) 100%);
-  --glass-border: rgba(255, 255, 255, 0.85);
-  --glass-shadow: 0 22px 56px -14px rgba(80, 64, 140, 0.38), 0 2px 8px rgba(80, 64, 140, 0.10), inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(120,110,170,0.14);
+  --glass-tint: rgba(248, 249, 252, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 20px 50px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15,23,42,0.05), inset 0 1px 0 rgba(255,255,255,0.95);
   --aurora-a: 24;
   --aurora-b: 330;
   --aurora-strength: 0.9;
-  --text-primary: #1B1824;
-  --text-secondary: #55526A;
-  --text-muted: #6A667A;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
   --accent-primary: #C2410C;
   --accent-glow: #F59E0B;
   --batik: rgba(194, 65, 12, 0.07);
   --shadow-soft: 0 10px 30px -6px rgba(30, 30, 60, 0.12);
-  --bg-widget: rgba(255, 255, 255, 0.70);
+  --bg-widget: rgba(248, 249, 252, 0.88);
   --border-strong: rgba(110, 100, 170, 0.30);
   --shadow-widget: 0 18px 44px -10px rgba(30, 30, 60, 0.26), 0 2px 6px rgba(30, 30, 60, 0.08);
 }
@@ -56,24 +58,26 @@
 .dark,
 [data-theme="dark"] {
   /* Karsa palette, dark: ink-plum night + the same terracotta, lantern amber for glow */
-  --bg-glass: rgba(24, 18, 38, 0.68);
-  --bg-card: rgba(255, 255, 255, 0.06);
+  --bg-glass: rgba(14, 15, 20, 0.90);
+  --island-bg: #050507;
+  --bg-card: rgba(24, 26, 34, 0.95);
+  --card-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 10px 24px -8px rgba(0,0,0,0.55);
   --bg-pill: rgba(255, 255, 255, 0.09);
   --border-subtle: rgba(255, 255, 255, 0.14);
-  --glass-tint: linear-gradient(135deg, rgba(52,40,84,0.66) 0%, rgba(30,24,50,0.62) 50%, rgba(66,34,62,0.60) 100%);
-  --glass-border: rgba(255, 255, 255, 0.18);
+  --glass-tint: rgba(14, 15, 20, 0.90);
+  --glass-border: rgba(255, 255, 255, 0.08);
   --glass-shadow: 0 24px 60px -14px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -1px 0 rgba(255,255,255,0.04);
   --aurora-a: 24;
   --aurora-b: 330;
-  --aurora-strength: 0.78;
-  --text-primary: #FBF4EA;
-  --text-secondary: #BFB0A0;
-  --text-muted: #A09386;
+  --aurora-strength: 0.32;
+  --text-primary: #F8FAFC;
+  --text-secondary: #CBD5E1;
+  --text-muted: #94A3B8;
   --accent-primary: #C2410C;
   --accent-glow: #FBBF24;
   --batik: rgba(251, 191, 36, 0.10);
   --shadow-soft: 0 14px 36px -6px rgba(0, 0, 0, 0.55);
-  --bg-widget: rgba(30, 24, 48, 0.66);
+  --bg-widget: rgba(14, 15, 20, 0.90);
   --border-strong: rgba(255, 255, 255, 0.20);
   --shadow-widget: 0 18px 44px -8px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
@@ -349,4 +353,30 @@ html.mobile, html.mobile body, html.mobile #root {
   overflow: hidden;
   user-select: text;
   -webkit-user-select: text;
+}
+
+
+/* ------------------------------------------------------------------
+ * Karsa design language: super-rounded squircle containers, nested cards, warm gradients
+ * ------------------------------------------------------------------ */
+.karsa-panel {
+  border-radius: 28px;
+}
+/* A card inside a glass surface: solid and clean with a layered soft shadow */
+.karsa-nested {
+  background: var(--bg-card);
+  border-radius: 20px;
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-subtle);
+}
+/* Primary button / highlight card: warm peach -> rose -> periwinkle with a soft white top edge */
+.karsa-grad {
+  background: linear-gradient(135deg, #FFB07B 0%, #FF758F 48%, #6C63FF 100%);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 6px 16px -6px rgba(255, 117, 143, 0.55);
+}
+.karsa-grad:hover { filter: brightness(1.06); }
+/* Progress capsule (emerald -> mint) used by the PRD-to-App stepper */
+.karsa-progress {
+  background: linear-gradient(90deg, #064E3B 0%, #10B981 60%, #A7F3D0 100%);
 }

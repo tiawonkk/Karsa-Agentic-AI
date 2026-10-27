@@ -34,12 +34,12 @@ export interface WidgetState {
 
 type WidgetMap = Record<WidgetId, WidgetState>;
 
-const STORAGE_KEY = "karsa_widgets_v3";
+const STORAGE_KEY = "karsa_widgets_v4";
 
 const defaults = (): WidgetMap => {
   const base = (size: WidgetSize, i: number): WidgetState => ({
     open: false,
-    docked: true,
+    docked: false,
     size,
     custom: null,
     x: 120 + i * 28,
@@ -53,11 +53,11 @@ const defaults = (): WidgetMap => {
     media: base("M", 4),
     chat: base("L", 5),
     shelf: base("M", 9),
-    studio: { ...base("L", 10), docked: false, custom: { w: 460, h: 560 } },
+    studio: { ...base("L", 10), custom: { w: 460, h: 560 } },
     // heavy modules start as floating windows (too wide for the 275px dock); Hari Ini opens in the dock
-    notebook: { ...base("L", 6), docked: false, custom: { w: 420, h: 480 } },
-    approvals: { ...base("L", 7), docked: false, custom: { w: 360, h: 480 } },
-    today: { ...base("L", 8), open: true },
+    notebook: { ...base("L", 6), custom: { w: 420, h: 480 } },
+    approvals: { ...base("L", 7), custom: { w: 360, h: 480 } },
+    today: { ...base("L", 8), custom: { w: 340, h: 420 } },
   };
 };
 
@@ -71,7 +71,7 @@ const load = (): WidgetMap => {
         if (!r || typeof r !== "object") continue;
         d[id] = {
           open: !!r.open,
-          docked: r.docked !== false,
+          docked: false, // no widget lives in the right dock any more: daily modules are in the Island, the rest float
           size: r.size === "S" || r.size === "L" ? r.size : "M",
           custom:
             r.custom && typeof r.custom.w === "number" && typeof r.custom.h === "number"

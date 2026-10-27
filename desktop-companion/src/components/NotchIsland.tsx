@@ -18,7 +18,9 @@ import { WardrobeStudio } from "./WardrobeStudio";
 import { SettingsModal, NotchSize } from "./SettingsModal";
 import { HitlApprovalPill, PendingApprovalData } from "./HitlApprovalPill";
 import { announceApprovalsChanged } from "./widgets/ApprovalsWidget";
-import { RightSideDock } from "./RightSideDock";
+import { RightAgenticDock } from "./RightAgenticDock";
+import { IslandDeck } from "./IslandDeck";
+import { FullAppStudioModal } from "./FullAppStudioModal";
 import { KarsaStage } from "./KarsaStage";
 import { OutfitItem, sanitizeOutfit, newItem } from "../lib/jelly";
 import { useJellyMoodSync } from "../hooks/useJellyMoodSync";
@@ -161,7 +163,7 @@ export const NotchIsland: React.FC = () => {
   // Alt+K: invite Karsa to the screen (and back)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "k") {
+      if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setStageOpen((v) => !v);
       }
@@ -671,21 +673,25 @@ export const NotchIsland: React.FC = () => {
           />
         )}
 
-        {/* Mode 4: Expanded micro-notch bar (380px x 115px) */}
+        {/* Mode 4: Expanded island = swipeable deck of daily modules (slide 0 is the Omni bar) */}
         {shellMode === "EXPANDED" && (
-          <NotchBar
-            isDark={isDark}
-            mascotColor={mascotColor}
-            eyeColor={eyeColor}
-            outfit={outfit}
-            isSleeping={isSleeping}
-            focusTrigger={focusSearchTrigger}
-            onSubmit={handleSubmit}
-            onCollapse={() =>
-              setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL")
+          <IslandDeck
+            chat={chat}
+            onCollapse={() => setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL")}
+            omni={
+              <NotchBar
+                isDark={isDark}
+                mascotColor={mascotColor}
+                eyeColor={eyeColor}
+                outfit={outfit}
+                isSleeping={isSleeping}
+                focusTrigger={focusSearchTrigger}
+                onSubmit={handleSubmit}
+                onCollapse={() => setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL")}
+                onOpenWardrobe={() => setActivePopover("WARDROBE")}
+                onOpenStage={() => setStageOpen(true)}
+              />
             }
-            onOpenWardrobe={() => setActivePopover("WARDROBE")}
-            onOpenStage={() => setStageOpen(true)}
           />
         )}
       </NotchShell>
@@ -694,7 +700,26 @@ export const NotchIsland: React.FC = () => {
       {!isSleeping &&
         createPortal(
         <>
-          <RightSideDock chat={chat} onOpenSettings={() => setActivePopover("SETTINGS")} onOpenWardrobe={() => setActivePopover("WARDROBE")} />
+          <RightAgenticDock
+            chat={chat}
+            onOpenSettings={() => setActivePopover("SETTINGS")}
+            onOpenWardrobe={() => setActivePopover("WARDROBE")}
+            isDark={isDark}
+            mascotColor={mascotColor}
+            eyeColor={eyeColor}
+            outfit={outfit}
+            isSleeping={isSleeping}
+          />
+          <FullAppStudioModal
+            chat={chat}
+            onOpenSettings={() => setActivePopover("SETTINGS")}
+            onOpenWardrobe={() => setActivePopover("WARDROBE")}
+            isDark={isDark}
+            mascotColor={mascotColor}
+            eyeColor={eyeColor}
+            outfit={outfit}
+            isSleeping={isSleeping}
+          />
           <FloatingWidgets chat={chat} onOpenSettings={() => setActivePopover("SETTINGS")} />
           <KarsaStage
             open={stageOpen}
