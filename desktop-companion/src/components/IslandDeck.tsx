@@ -140,8 +140,8 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
   };
 
   return (
-    <div className="relative w-full h-full flex flex-col gap-1.5 text-ink">
-      <div className="flex items-center justify-between gap-2 flex-shrink-0 h-6 text-[11px]">
+    <div className="relative w-full h-full flex flex-col gap-1 text-ink">
+      <div className="flex items-center justify-between gap-2 flex-shrink-0 h-5 text-[11px]">
         <button type="button" onClick={onCollapse} title="Kecilkan island (Esc)" aria-label="Kecilkan island" className="group/t font-semibold tracking-tight truncate w-[34%] text-left inline-flex items-center gap-1 cursor-pointer">
           <span className="truncate">{slide.title}</span>
           <ChevronUp className="w-3 h-3 flex-shrink-0 text-ink-muted opacity-0 group-hover/t:opacity-100 transition-opacity" />
@@ -174,7 +174,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: dir * -36 }}
             transition={{ type: "spring", stiffness: 420, damping: 36, mass: 0.7 }}
-            className="absolute inset-0 karsa-nested !rounded-[18px] px-3 py-2 overflow-hidden"
+            className="absolute inset-0 karsa-nested !rounded-[18px] px-3 py-1.5 overflow-hidden"
           >
             <SlideErrorBoundary slideName={slide.title} isDark={isDark}>
               {body()}
@@ -185,22 +185,22 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
         <button
           type="button"
           onClick={() => go(-1)}
-          className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-8 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+          className="absolute -left-[13px] top-1/2 -translate-y-1/2 w-3.5 h-7 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
           aria-label="Slide sebelumnya"
         >
-          <ChevronLeft className="w-3.5 h-3.5" />
+          <ChevronLeft className="w-3 h-3" />
         </button>
         <button
           type="button"
           onClick={() => go(1)}
-          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-8 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+          className="absolute -right-[13px] top-1/2 -translate-y-1/2 w-3.5 h-7 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
           aria-label="Slide berikutnya"
         >
-          <ChevronRight className="w-3.5 h-3.5" />
+          <ChevronRight className="w-3 h-3" />
         </button>
       </div>
 
-      <div className="absolute left-0 right-0 bottom-[3px] flex items-center justify-center gap-1.5 pointer-events-none">
+      <div className="flex-shrink-0 h-2 flex items-center justify-center gap-1.5">
         {SLIDES.map((sl, i) => (
           <button
             key={sl.id}
@@ -211,7 +211,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
             }}
             aria-label={sl.title}
             aria-current={i === index}
-            className={`pointer-events-auto h-1 rounded-full transition-all cursor-pointer ${i === index ? "w-3.5 bg-ink" : "w-1 bg-ink-muted/50"}`}
+            className={`h-1 rounded-full transition-all cursor-pointer ${i === index ? "w-3.5 bg-ink" : "w-1 bg-ink-muted/50"}`}
           />
         ))}
       </div>

@@ -212,13 +212,23 @@ export const MediaBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
 
   if (size === "M") {
     return (
-      <div className="h-full flex flex-col justify-between">
-        {info}
-        <div className="text-center text-[11.5px] font-medium text-ink truncate min-h-[16px]" aria-live="off">
-          {!m.active ? "" : lyricsState === "loading" ? "Memuat lirik…" : currentIdx >= 0 ? lyrics[currentIdx].text || "♪" : lyrics.length > 0 ? "♪" : lyricsState === "none" ? "Lirik tidak ditemukan" : ""}
+      <div className="h-full flex flex-col justify-center gap-2">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex-1 min-w-0 flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 via-amber-400 to-rose-500 flex items-center justify-center flex-shrink-0">
+              <Music2 className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-ink truncate leading-tight">{m.active ? m.title : "Tidak ada musik diputar"}</div>
+              {/* the live synced lyric line takes the artist's place while it is available */}
+              <div className={`text-[11px] truncate ${m.active && currentIdx >= 0 ? "text-ink font-medium" : "text-ink-2"}`} aria-live="off">
+                {!m.active ? "Putar lagu di Spotify atau YouTube" : currentIdx >= 0 ? lyrics[currentIdx].text || "♪" : m.artist || "—"}
+              </div>
+            </div>
+          </div>
+          <div className="flex-shrink-0">{controls}</div>
         </div>
         {progress}
-        {controls}
       </div>
     );
   }

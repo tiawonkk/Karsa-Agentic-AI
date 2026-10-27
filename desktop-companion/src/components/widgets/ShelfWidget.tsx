@@ -182,11 +182,11 @@ export const ShelfBody: React.FC<{ size: WidgetSize; chat: ChatBridge }> = ({ si
           {shelf.note}
         </div>
       )}
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-1.5">
         {shown.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center gap-1 text-ink-muted">
-            <Inbox className="w-5 h-5" />
-            <span className="text-[11px]">Laci kosong. Simpan file sementara, lalu tarik keluar ke aplikasi lain atau kirim ke Karsa.</span>
+          <div className="h-full flex items-center justify-center text-center gap-1.5 text-ink-muted">
+            <Inbox className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="text-[10.5px] truncate">{size === "M" ? "Laci kosong · tarik file keluar ke aplikasi lain" : "Laci kosong. Simpan file sementara, lalu tarik keluar ke aplikasi lain atau kirim ke Karsa."}</span>
           </div>
         ) : (
           shown.map((f) => <Row key={f.id} f={f} chat={chat} shelf={shelf} compact={size === "M"} />)

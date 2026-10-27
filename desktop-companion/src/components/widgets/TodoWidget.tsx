@@ -409,19 +409,24 @@ export const TodoBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
   );
 
   if (size === "M") {
-    const visible = [...pending, ...done].slice(0, 3);
+    // compact: the counter and the next task share one row, the input sits below (fits the 148px island)
+    const visible = [...pending, ...done].slice(0, 1);
     return (
-      <div className="h-full flex flex-col gap-2 min-h-0">
-        {summary}
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
-          {visible.length === 0 ? (
-            <div className="text-[11px] text-ink-muted pt-1">Belum ada tugas. Tambahkan di bawah.</div>
-          ) : (
-            visible.map((t) => <Row key={t.id} t={t} onToggle={() => toggle(t)} />)
-          )}
-          {tasks.length > visible.length && (
-            <div className="text-[10px] text-ink-muted">+{tasks.length - visible.length} lainnya (perbesar ke L)</div>
-          )}
+      <div className="h-full flex flex-col justify-center gap-2 min-h-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex-shrink-0">{summary}</div>
+          <div className="flex-1 min-w-0">
+            {visible.length === 0 ? (
+              <div className="text-[11px] text-ink-muted truncate">Belum ada tugas.</div>
+            ) : (
+              <>
+                {visible.map((t) => (
+                  <Row key={t.id} t={t} onToggle={() => toggle(t)} />
+                ))}
+                {tasks.length > 1 && <div className="text-[10px] text-ink-muted">+{tasks.length - 1} lainnya (perbesar ke L)</div>}
+              </>
+            )}
+          </div>
         </div>
         {input}
       </div>
