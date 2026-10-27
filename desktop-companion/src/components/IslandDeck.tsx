@@ -87,7 +87,9 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
   }, [index]);
   const [dir, setDir] = useState(1);
   const [now, setNow] = useState(() => new Date());
-  const { openWidget, setSize } = useWidgets();
+  const { openWidget, setSize, widgets } = useWidgets();
+  // A module that is already floating as a widget is not shown a second time in the island
+  const visible = SLIDES.filter((sl) => !(sl.widget && widgets[sl.widget]?.open));
   const { isDark } = useTheme();
 
   useEffect(() => {
@@ -95,10 +97,33 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
     return () => clearInterval(t);
   }, []);
 
-  const go = useCallback((delta: number) => {
-    setDir(delta);
-    setIndex((i) => (i + delta + SLIDES.length) % SLIDES.length);
-  }, []);
+  const visibleKey = visible.map((v) => v.id).join(",");
+  const go = useCallback(
+    (delta: number) => {
+      const ids = visibleKey ? visibleKey.split(",") : [];
+      if (!ids.length) return;
+      setDir(delta);
+      setIndex((i) => {
+        const at = ids.indexOf(SLIDES[i].id);
+        const next = ids[(at + delta + ids.length) % ids.length];
+        return SLIDES.findIndex((sl) => sl.id === next);
+      });
+    },
+    [visibleKey]
+  );
+
+  // the current slide was just pulled out as a widget: move on to the next one still in the island
+  useEffect(() => {
+    const ids = visibleKey ? visibleKey.split(",") : [];
+    if (!ids.length || ids.includes(SLIDES[index].id)) return;
+    for (let k = 1; k <= SLIDES.length; k++) {
+      const cand = SLIDES[(index + k) % SLIDES.length];
+      if (ids.includes(cand.id)) {
+        setIndex(SLIDES.indexOf(cand));
+        return;
+      }
+    }
+  }, [visibleKey, index]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -114,10 +139,10 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
   }, [go]);
 
   const slide = SLIDES[index];
+  const empty = visible.length === 0;
   useEffect(() => {
-    onWide(slide.id === "media");
-    return () => onWide(false);
-  }, [slide.id, onWide]);
+    onWide(false);
+  }, [onWide]);
 
   const pullOut = (id: WidgetId) => {
     setSize(id, "M");
@@ -143,7 +168,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
     <div className="relative w-full h-full flex flex-col gap-1 text-ink">
       <div className="flex items-center justify-between gap-2 flex-shrink-0 h-5 text-[11px]">
         <button type="button" onClick={onCollapse} title="Kecilkan island (Esc)" aria-label="Kecilkan island" className="group/t font-semibold tracking-tight truncate w-[34%] text-left inline-flex items-center gap-1 cursor-pointer">
-          <span className="truncate">{slide.title}</span>
+          <span className="truncate">{empty ? "Island" : slide.title}</span>
           <ChevronUp className="w-3 h-3 flex-shrink-0 text-ink-muted opacity-0 group-hover/t:opacity-100 transition-opacity" />
         </button>
         <span className="flex items-center gap-1.5 font-mono text-ink-2 whitespace-nowrap">
@@ -152,7 +177,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
         </span>
         <span className="flex items-center justify-end gap-1.5 w-[34%] text-ink-2">
           <ThemeToggle />
-          <button
+          {!empty && <button
             type="button"
             onClick={() => pullOut(slide.widget as WidgetId)}
             className="h-5 px-2 rounded-full karsa-grad text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
@@ -161,7 +186,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
           >
             <ExternalLink className="w-3 h-3" />
             Widget
-          </button>
+          </button>}
         </span>
       </div>
 
@@ -177,7 +202,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
             className="absolute inset-0 karsa-nested !rounded-[18px] px-3 py-1.5 overflow-hidden"
           >
             <SlideErrorBoundary slideName={slide.title} isDark={isDark}>
-              {body()}
+              {empty ? <div className="h-full flex items-center justify-center text-[11px] text-ink-muted text-center">Semua modul sedang jadi widget mengambang. Tutup salah satu untuk menampilkannya di sini.</div> : body()}
             </SlideErrorBoundary>
           </motion.div>
         </AnimatePresence>
@@ -201,7 +226,9 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
       </div>
 
       <div className="flex-shrink-0 h-2 flex items-center justify-center gap-1.5">
-        {SLIDES.map((sl, i) => (
+        {visible.map((sl) => {
+          const i = SLIDES.indexOf(sl);
+          return (
           <button
             key={sl.id}
             type="button"
@@ -213,7 +240,8 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse
             aria-current={i === index}
             className={`h-1 rounded-full transition-all cursor-pointer ${i === index ? "w-3.5 bg-ink" : "w-1 bg-ink-muted/50"}`}
           />
-        ))}
+          );
+        })}
       </div>
     </div>
   );
