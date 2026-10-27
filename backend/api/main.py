@@ -108,6 +108,10 @@ from backend.api.automation import router as automation_router  # noqa: E402
 
 app.include_router(automation_router)
 
+from backend.api.files import router as files_router  # noqa: E402
+
+app.include_router(files_router)
+
 from backend.api.mobile import mobile_guard, router as mobile_router  # noqa: E402
 
 app.include_router(mobile_router)
@@ -1393,10 +1397,15 @@ async def generate_notebook_endpoint(notebook_id: int, req: NotebookGenerateRequ
 def export_notebook_docx_endpoint(notebook_id: int, req: NotebookExportRequest) -> dict[str, Any]:
     try:
         notebook_store.get_notebook(notebook_id)
-        out = notebook_service.export_paper_docx(req.paper)
+        from backend.core import project_folder
+
+        folder = project_folder.get_folder()  # the paper lands in the user's project folder when one is chosen
+        out = notebook_service.export_paper_docx(req.paper, Path(folder) if folder else None)
     except NotebookError as e:
         raise _nb_error(e)
-    return {**out, "download_url": f"/api/v1/files/outputs/{out['filename']}"}
+    if folder:
+        return {**out, "saved_in": folder, "in_project_folder": True}
+    return {**out, "saved_in": str(settings.outputs_dir), "in_project_folder": False, "download_url": f"/api/v1/files/outputs/{out['filename']}"}
 
 
 @app.get("/api/v1/files/outputs/{filename}")

@@ -58,8 +58,11 @@ def load_dataset(path: Path | str) -> pd.DataFrame:
                 df = pd.read_csv(p, dtype=str, keep_default_na=False, sep=None, engine="python", encoding="latin-1")
         elif ext in (".xlsx", ".xls"):
             df = pd.read_excel(p, dtype=str, keep_default_na=False)
+        elif ext == ".json":
+            raw = pd.read_json(p)
+            df = raw.astype(object).where(raw.notna(), "").astype(str)
         else:
-            raise NotebookError("Format dataset harus .csv atau .xlsx.")
+            raise NotebookError("Format dataset harus .csv, .xlsx, .xls atau .json.")
     except NotebookError:
         raise
     except Exception as e:

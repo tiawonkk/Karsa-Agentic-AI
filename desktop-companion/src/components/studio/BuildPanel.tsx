@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Check, FileCode2, Hammer, Plus, Trash2, X } from "lucide-react";
+import { FileDropzone, UploadResult } from "./FileDropzone";
+import { FolderBar } from "./FolderBar";
+import { useProjectFolder } from "../../stores/projectFolder";
 import { Btn, Card, ErrorLine, Hint, Label, Stepper, api, area, field, useAction } from "./shared";
 
 interface Build {
@@ -33,6 +36,9 @@ export const BuildPanel: React.FC<{ refreshKey: number }> = ({ refreshKey }) => 
   const [name, setName] = useState("");
   const [prd, setPrd] = useState("");
   const [dir, setDir] = useState("");
+  const folder = useProjectFolder();
+  const [prdInfo, setPrdInfo] = useState<UploadResult | null>(null);
+  const targetDir = dir.trim() || folder.path || "";
 
   const load = useAction(async () => {
     const d = await api<{ builds: Build[] }>("/app-builds");
@@ -40,7 +46,7 @@ export const BuildPanel: React.FC<{ refreshKey: number }> = ({ refreshKey }) => 
     setOpen((o) => o ?? d.builds[0]?.id ?? null);
   });
   const create = useAction(async () => {
-    const b = await api<Build>("/app-builds", { method: "POST", json: { name, prd, target_dir: dir } });
+    const b = await api<Build>("/app-builds", { method: "POST", json: { name, prd, target_dir: targetDir } });
     setName("");
     setPrd("");
     setOpen(b.id);
@@ -74,12 +80,35 @@ export const BuildPanel: React.FC<{ refreshKey: number }> = ({ refreshKey }) => 
 
   return (
     <div className="space-y-3">
+      <FolderBar hint="Pilih folder kosong (atau buat folder baru): agen menulis kode dan menjalankan build/tes di sini, setelah kamu menyetujui rencananya." />
       <div className="space-y-2">
+        <Label>Upload Dokumen PRD</Label>
+        <FileDropzone
+          kind="prd"
+          accept=".pdf,.docx,.md,.txt"
+          label="Upload PRD"
+          hint="Klik atau seret file .pdf, .docx, .md, .txt. Isinya diekstrak otomatis."
+          onUploaded={(r) => {
+            const u = r[0] as UploadResult;
+            setPrdInfo(u);
+            setPrd(u.text ?? "");
+            setName((n) => n || (u.summary?.title ?? u.name).replace(/\.[^.]+$/, "").slice(0, 60));
+          }}
+        />
+        {prdInfo?.summary && (
+          <Card className="space-y-1">
+            <div className="text-[11.5px] font-semibold text-ink truncate">{prdInfo.name}: {prdInfo.summary.title}</div>
+            <Hint>
+              {prdInfo.summary.chars.toLocaleString("id-ID")} karakter{prdInfo.truncated ? " (dipotong ke 60.000)" : ""}
+              {prdInfo.summary.headings.length > 0 && ` · bagian: ${prdInfo.summary.headings.slice(0, 8).join(" · ")}`}
+            </Hint>
+          </Card>
+        )}
         <Label>Aplikasi baru dari PRD</Label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nama aplikasi" className={field} />
         <textarea value={prd} onChange={(e) => setPrd(e.target.value)} rows={5} placeholder={"# PRD: Nama\n\n## Tujuan\n- ...\n\n## Fitur\n- ..."} className={area} />
-        <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="Folder tujuan (kosong/baru), mis. D:\Proyek\TokoKu" className={field} />
-        <Btn onClick={() => create.run()} busy={create.busy} disabled={!name.trim() || prd.trim().length < 20 || !dir.trim()}><Plus className="w-3 h-3" />Susun rencana</Btn>
+        <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder={folder.path ? `Kosongkan untuk memakai: ${folder.path}` : "Folder tujuan (kosong/baru), mis. D:\\Proyek\\TokoKu"} className={field} />
+        <Btn onClick={() => create.run()} busy={create.busy} disabled={!name.trim() || prd.trim().length < 20 || !targetDir}><Plus className="w-3 h-3" />Susun rencana</Btn>
         <Hint>Tidak ada file ditulis dan tidak ada perintah dijalankan sebelum kamu menyetujui rencananya.</Hint>
       </div>
       <ErrorLine message={create.error ?? load.error ?? act.error ?? del.error} />

@@ -74,6 +74,8 @@ Request flow: `api/main.py` → supervisor graph → specialist module sub-graph
 - **Right dock = Agentic AI only.** `RightAgenticDock.tsx` (chat + HITL banner + automation cards) and `FullAppStudioModal.tsx` (Alt+Shift+K, state in `stores/studioMode.ts`). The automation list and panels live in `components/studio/AutomationPanel.tsx`; add new automations there. Do not put daily widgets in the dock; no widget is docked any more (`docked` is always false).
 - Style with `.karsa-surface karsa-panel` (28px outer), `.karsa-nested` (20px inner card), `.karsa-grad` (primary), `Stepper` for pipelines. Tokens: `--island-bg`, `--bg-card`, `--card-shadow`.
 
+- **Files and project folder** (session #59): uploads go through `core/files.py` (`/api/v1/files/upload`, only paths inside `~/.karsa/uploads/files` are trusted afterwards); the active folder lives in `core/project_folder.py` and is changed only through `api/files.py` (loopback callers only; the Windows dialog is a PowerShell STA FolderBrowserDialog). Agents write results into it (cleaned datasets, paper .docx, PRD builds). There is exactly ONE chat UI (right panel / Full App Mode); never make chat a floating widget again.
+
 ### Project principles (from docs/decision log)
 
 - **Deterministic first**: do the parsing, math and file compilation in Python before reaching for an LLM. Examples: Indonesian amounts such as "25rb" → 25000, Daily Safe Spend, Pandas profiling, and python-docx compilation. Never send raw datasets to an LLM, only compact profile metadata (< 2 KB).

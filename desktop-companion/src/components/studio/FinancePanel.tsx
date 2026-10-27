@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Download, ExternalLink, Newspaper, Sparkles } from "lucide-react";
+import { FileDropzone } from "./FileDropzone";
 import { Btn, Card, ErrorLine, Hint, Label, api, field, idr, useAction } from "./shared";
 
 interface Report {
@@ -50,6 +51,14 @@ export const FinancePanel: React.FC = () => {
 
   return (
     <div className="space-y-3">
+      <FileDropzone
+        accept=".png,.jpg,.jpeg,.webp"
+        label="Upload Foto Struk (OCR)"
+        hint="Klik atau seret foto struk (.png, .jpg, .webp). Hasil OCR muncul sebagai pratinjau yang bisa kamu edit; belum dicatat sebelum kamu setuju."
+        uploadFn={async (f) => {
+          window.dispatchEvent(new CustomEvent("karsa:receipt-file", { detail: f }));
+        }}
+      />
       <div>
         <Label>Laporan bulanan</Label>
         <div className="flex gap-2">

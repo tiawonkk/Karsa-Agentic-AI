@@ -3,7 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 export type WidgetId = "pomodoro" | "water" | "todo" | "finance" | "media" | "chat" | "shelf" | "notebook" | "approvals" | "today" | "studio";
 export type WidgetSize = "S" | "M" | "L";
 
-export const WIDGET_IDS: WidgetId[] = ["pomodoro", "water", "todo", "finance", "media", "chat", "notebook", "approvals", "today", "shelf", "studio"];
+export const WIDGET_IDS: WidgetId[] = ["pomodoro", "water", "todo", "finance", "media", "notebook", "approvals", "today", "shelf", "studio"];
 
 /** Preset sizes: S = nano pill, M = compact card, L = expanded view. */
 export const SIZE_DIMS: Record<WidgetSize, { w: number; h: number }> = {
@@ -34,7 +34,7 @@ export interface WidgetState {
 
 type WidgetMap = Record<WidgetId, WidgetState>;
 
-const STORAGE_KEY = "karsa_widgets_v4";
+const STORAGE_KEY = "karsa_widgets_v5";
 
 const defaults = (): WidgetMap => {
   const base = (size: WidgetSize, i: number): WidgetState => ({

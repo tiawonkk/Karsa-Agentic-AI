@@ -295,6 +295,7 @@ async def quiz_endpoint(notebook_id: int, req: QuizRequest) -> dict[str, Any]:
 class MlReadyRequest(BaseModel):
     shelf_id: int | None = None
     source_id: int | None = None
+    path: str | None = None  # a file uploaded through /files/upload (kind=dataset)
     target: str | None = None
     scale: str = "standard"
     encode: str = "auto"
@@ -308,7 +309,14 @@ async def ml_ready_endpoint(req: MlReadyRequest) -> dict[str, Any]:
     from backend.core import shelf as shelf_store
     from backend.modules.notebook import store as nb_store
 
-    if req.shelf_id is not None:
+    if req.path:
+        from backend.core import files as files_core
+
+        try:
+            path = files_core.resolve_upload(req.path)
+        except files_core.UploadError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+    elif req.shelf_id is not None:
         try:
             path, _ = shelf_store.file_path_of(req.shelf_id)
         except shelf_store.ShelfError as e:
@@ -322,7 +330,7 @@ async def ml_ready_endpoint(req: MlReadyRequest) -> dict[str, Any]:
         if path is None or not path.exists():
             raise HTTPException(status_code=400, detail="Sumber ini bukan dataset yang tersimpan.")
     else:
-        raise HTTPException(status_code=422, detail="Pilih file dari Laci (shelf_id) atau dataset Notebook (source_id).")
+        raise HTTPException(status_code=422, detail="Unggah dataset, pilih file dari Laci (shelf_id) atau dataset Notebook (source_id).")
     if path.suffix.lower() not in (".csv", ".xlsx", ".xls"):
         raise HTTPException(status_code=415, detail="Hanya file CSV atau Excel yang bisa disiapkan.")
     try:

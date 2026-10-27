@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { projectFolder } from "../../stores/projectFolder";
 import {
   BookOpen,
   Download,
@@ -43,7 +44,7 @@ interface QA {
 type Output = StudyOutput | Paper;
 
 // Survives remounts (dock <-> floating, size changes); the real data lives in SQLite
-const session: Record<number, { qa: QA[]; output: Output | null; exported: { filename: string; url: string } | null }> = {};
+const session: Record<number, { qa: QA[]; output: Output | null; exported: { filename: string; url: string | null; savedIn?: string } | null }> = {};
 const sessionOf = (id: number) => (session[id] ??= { qa: [], output: null, exported: null });
 
 const KIND_ICON: Record<NbSource["kind"], React.ReactNode> = {
@@ -469,7 +470,7 @@ export const NotebookBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
     if (!id || !sess?.output || sess.output.kind !== "paper_draft") return;
     const r = await nb.run("export", () => notebookApi.exportDocx(id, sess.output as Paper));
     if (r) {
-      sess.exported = { filename: r.filename, url: r.download_url };
+      sess.exported = { filename: r.filename, url: r.download_url ?? null, savedIn: r.saved_in };
       bump((n) => n + 1);
     }
   };
@@ -784,9 +785,15 @@ export const NotebookBody: React.FC<{ size: WidgetSize }> = ({ size }) => {
                     </button>
                   )}
                   {sess?.exported && (
-                    <a href={sess.exported.url} download className="text-[10.5px] font-semibold text-accent hover:underline">
-                      Unduh {sess.exported.filename}
-                    </a>
+                    sess.exported.url ? (
+                      <a href={sess.exported.url} download className="text-[10.5px] font-semibold text-accent hover:underline">
+                        Unduh {sess.exported.filename}
+                      </a>
+                    ) : (
+                      <button type="button" onClick={() => projectFolder.open("explorer")} className="text-[10.5px] font-semibold text-accent hover:underline cursor-pointer" title={sess.exported.savedIn}>
+                        Tersimpan di folder project: {sess.exported.filename} (buka folder)
+                      </button>
+                    )
                   )}
                 </div>
               </div>

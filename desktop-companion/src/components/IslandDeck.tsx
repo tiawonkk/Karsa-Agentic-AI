@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, ExternalLink } from "lucide-react";
 import { WidgetId, useWidgets } from "../context/WidgetsContext";
 import { ThemeToggle, useTheme } from "../context/ThemeContext";
 import { PomodoroBody } from "./widgets/PomodoroWidget";
@@ -19,6 +19,8 @@ interface Slide {
   /** Widget this slide can be pulled out as (S / M / L floating widget) */
   widget?: WidgetId;
 }
+
+const SLIDE_KEY = "karsa_island_slide";
 
 const SLIDES: Slide[] = [
   { id: "pomodoro", title: "Pomodoro", widget: "pomodoro" },
@@ -60,14 +62,29 @@ interface IslandDeckProps {
   chat: ChatBridge;
   /** The Music slide needs 440px for its lyrics panel; every other slide stays at 380px */
   onWide: (wide: boolean) => void;
+  /** Collapse back to the idle pill (the island otherwise stays on the current module) */
+  onCollapse: () => void;
 }
 
 /**
  * IslandDeck: the expanded Dynamic Island. The daily micro-utilities (Pomodoro, Music + lyrics, Water, Todo, File Shelf)
  * are swipeable slides here; each can be pulled out as a floating S/M/L widget. The AI automations live in the right dock.
  */
-export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide }) => {
-  const [index, setIndex] = useState(0);
+export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide, onCollapse }) => {
+  // The island stays on the module you are using: the slide survives collapsing and reopening
+  const [index, setIndex] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem(SLIDE_KEY));
+      return Number.isInteger(n) && n >= 0 && n < SLIDES.length ? n : 0;
+    } catch (_) {
+      return 0;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SLIDE_KEY, String(index));
+    } catch (_) {}
+  }, [index]);
   const [dir, setDir] = useState(1);
   const [now, setNow] = useState(() => new Date());
   const { openWidget, setSize } = useWidgets();
@@ -125,7 +142,10 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide }) => {
   return (
     <div className="relative w-full h-full flex flex-col gap-1.5 text-ink">
       <div className="flex items-center justify-between gap-2 flex-shrink-0 h-6 text-[11px]">
-        <span className="font-semibold tracking-tight truncate w-[34%]">{slide.title}</span>
+        <button type="button" onClick={onCollapse} title="Kecilkan island (Esc)" aria-label="Kecilkan island" className="group/t font-semibold tracking-tight truncate w-[34%] text-left inline-flex items-center gap-1 cursor-pointer">
+          <span className="truncate">{slide.title}</span>
+          <ChevronUp className="w-3 h-3 flex-shrink-0 text-ink-muted opacity-0 group-hover/t:opacity-100 transition-opacity" />
+        </button>
         <span className="flex items-center gap-1.5 font-mono text-ink-2 whitespace-nowrap">
           <DayRing now={now} />
           {stamp(now)}
@@ -145,7 +165,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide }) => {
         </span>
       </div>
 
-      <div className="relative flex-1 min-h-0">
+      <div className="group relative flex-1 min-h-0">
         <AnimatePresence mode="wait" initial={false} custom={dir}>
           <motion.div
             key={slide.id}
@@ -165,7 +185,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide }) => {
         <button
           type="button"
           onClick={() => go(-1)}
-          className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-8 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer z-10"
+          className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-8 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
           aria-label="Slide sebelumnya"
         >
           <ChevronLeft className="w-3.5 h-3.5" />
@@ -173,7 +193,7 @@ export const IslandDeck: React.FC<IslandDeckProps> = ({ chat, onWide }) => {
         <button
           type="button"
           onClick={() => go(1)}
-          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-8 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer z-10"
+          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-8 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
           aria-label="Slide berikutnya"
         >
           <ChevronRight className="w-3.5 h-3.5" />

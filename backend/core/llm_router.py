@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import queue
 import re
 import threading
 import time
@@ -120,6 +121,42 @@ LLM_TIMEOUT_S = 20.0
 LLM_RETRIES = 0  # the client libraries do not retry: `_call_with_backoff` does, so the wait is bounded and visible
 LLM_BACKOFF_RETRIES = 2  # extra tries on the same provider for transient errors (429, 5xx, timeouts, network)
 LLM_BACKOFF_BASE_S = 0.8
+# A local model that is still loading must not leave the chat on "...": with a cloud fallback available the first
+# piece has to arrive within FIRST_PIECE_LOCAL_S, otherwise the next provider answers. Alone, it gets longer.
+FIRST_PIECE_LOCAL_S = 12.0
+FIRST_PIECE_LOCAL_ALONE_S = 60.0
+
+
+class FirstPieceTimeout(TimeoutError):
+    pass
+
+
+def _guard_first_piece(chunks, deadline: float):
+    """Iterate `chunks` (a blocking generator) but raise FirstPieceTimeout if nothing arrives within `deadline`."""
+    q: queue.Queue = queue.Queue()
+
+    def pump():
+        try:
+            for x in chunks:
+                q.put(("piece", x))
+            q.put(("end", None))
+        except Exception as e:  # handed to the consumer
+            q.put(("error", e))
+
+    threading.Thread(target=pump, daemon=True).start()
+    first = True
+    while True:
+        try:
+            kind, val = q.get(timeout=deadline if first else LLM_TIMEOUT_S * 3)
+        except queue.Empty:
+            raise FirstPieceTimeout(f"belum menjawab dalam {int(deadline)} detik (model mungkin masih dimuat)")
+        first = False
+        if kind == "piece":
+            yield val
+        elif kind == "end":
+            return
+        else:
+            raise val
 
 
 class LLMUnavailable(RuntimeError):
@@ -578,7 +615,7 @@ class LLMRouter:
         if not cands:
             raise LLMUnavailable(self._no_provider_message(purpose))
         problems: list[str] = []
-        for cfg in cands:
+        for idx, cfg in enumerate(cands):
             started = False
             attempt = 0
             while True:
@@ -586,7 +623,10 @@ class LLMRouter:
                     problems.append(describe_failure(cfg["provider"], RuntimeError("429 batas permintaan lokal tercapai")))
                     break
                 try:
-                    for chunk in self._model_for(cfg, purpose, module_name, session_thread_id, timeout).stream(messages):
+                    stream = self._model_for(cfg, purpose, module_name, session_thread_id, timeout).stream(messages)
+                    if cfg["provider"] == "ollama":
+                        stream = _guard_first_piece(stream, FIRST_PIECE_LOCAL_S if idx < len(cands) - 1 else FIRST_PIECE_LOCAL_ALONE_S)
+                    for chunk in stream:
                         c = chunk.content
                         text = c if isinstance(c, str) else "".join(str(x.get("text", "")) if isinstance(x, dict) else str(x) for x in c)
                         if text:
@@ -599,6 +639,9 @@ class LLMRouter:
                 except Exception as e:
                     if started:
                         return  # keep what the user already saw; do not restart on another model mid-sentence
+                    if isinstance(e, FirstPieceTimeout):  # no point in asking the same slow local model again
+                        problems.append(describe_failure(cfg["provider"], e))
+                        break
                     if classify_error(e) in ("auth", "model") or attempt >= LLM_BACKOFF_RETRIES:
                         problems.append(describe_failure(cfg["provider"], e))
                         break

@@ -139,3 +139,31 @@ def test_saving_a_provider_key_takes_effect_immediately(monkeypatch):
     assert client.post("/api/v1/settings/provider-key", json={"provider": "groq", "api_key": "k"}).status_code == 200
     d1 = client.get("/api/health/models").json()  # no force: saving invalidated the cache
     assert d1["ok"] and d1["active"] == "groq"
+
+
+class SlowLocal:
+    """A local model that is still loading: the first piece never arrives in time."""
+
+    def stream(self, messages):
+        import time
+
+        time.sleep(1.5)
+        yield AIMessageChunk(content="terlambat")
+
+
+def test_slow_local_model_falls_back_to_cloud_instead_of_hanging(monkeypatch):
+    set_system_setting("api_key.gemini", "g")
+    monkeypatch.setattr(lr.LLMRouter, "ollama_up", staticmethod(lambda: True))
+    monkeypatch.setattr(lr, "FIRST_PIECE_LOCAL_S", 0.2)
+    monkeypatch.setattr(router, "candidates", lambda purpose: [{"provider": "ollama", "model": "m", "temperature": 0}, {"provider": "gemini", "model": "g", "temperature": 0}])
+    use(monkeypatch, {"ollama": SlowLocal(), "gemini": Fake(["jawaban awan"])})
+    assert "".join(router.stream_text("chat", MSG)) == "jawaban awan"
+
+
+def test_slow_local_model_alone_reports_instead_of_hanging(monkeypatch):
+    monkeypatch.setattr(lr, "FIRST_PIECE_LOCAL_ALONE_S", 0.2)
+    monkeypatch.setattr(router, "candidates", lambda purpose: [{"provider": "ollama", "model": "m", "temperature": 0}])
+    use(monkeypatch, {"ollama": SlowLocal()})
+    with pytest.raises(LLMUnavailable) as e:
+        list(router.stream_text("chat", MSG))
+    assert "detik" in str(e.value)

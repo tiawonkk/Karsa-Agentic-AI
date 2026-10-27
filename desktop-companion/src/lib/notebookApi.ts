@@ -151,7 +151,7 @@ export const notebookApi = {
   generate: (id: number, kind: "briefing" | "study_guide" | "paper_draft", topic = "") =>
     call<StudyOutput | Paper>(`/api/v1/notebooks/${id}/generate`, json({ kind, topic })),
   exportDocx: (id: number, paper: Paper) =>
-    call<{ filename: string; path: string; download_url: string }>(`/api/v1/notebooks/${id}/export/docx`, json({ paper })),
+    call<{ filename: string; path: string; download_url?: string; saved_in?: string; in_project_folder?: boolean }>(`/api/v1/notebooks/${id}/export/docx`, json({ paper })),
   cleanPreview: (sourceId: number, options: CleanOptions) =>
     call<CleanReport>(`/api/v1/notebooks/sources/${sourceId}/clean/preview`, json({ options })),
   cleanApply: (sourceId: number, options: CleanOptions, addToNotebook: boolean) =>

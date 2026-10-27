@@ -8,6 +8,7 @@ import { ChatBody, ChatBridge } from "./widgets/ChatWidget";
 import { useApprovals } from "./widgets/ApprovalsWidget";
 import { MascotCanvas } from "./MascotCanvas";
 import { AUTOMATIONS, AutomationPanel } from "./studio/AutomationPanel";
+import { FolderBar } from "./studio/FolderBar";
 import { OutfitItem } from "../lib/jelly";
 import { AutomationId, openStudio } from "../stores/studioMode";
 import { widgetForEvent } from "../stores/shortcuts";
@@ -204,7 +205,9 @@ export const RightAgenticDock: React.FC<RightAgenticDockProps> = ({ chat, onOpen
           )}
 
           {tab === "auto" && !current && (
-            <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-2 gap-2 content-start pr-0.5">
+            <div className="flex-1 min-h-0 overflow-y-auto pr-0.5 space-y-2">
+              <FolderBar compact />
+              <div className="grid grid-cols-2 gap-2 content-start">
               {AUTOMATIONS.map((a) => (
                 <button
                   key={a.id}
@@ -224,6 +227,7 @@ export const RightAgenticDock: React.FC<RightAgenticDockProps> = ({ chat, onOpen
                   </span>
                 </button>
               ))}
+              </div>
             </div>
           )}
 

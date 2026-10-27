@@ -88,7 +88,7 @@ export const WidgetView: React.FC<{ id: WidgetId } & RenderCtx> = ({ id, chat, o
 /** Floating (undocked) widgets. The wrapper never blocks clicks: each widget re-enables pointer events itself. */
 export const FloatingWidgets: React.FC<RenderCtx> = ({ chat, onOpenSettings }) => {
   const { widgets } = useWidgets();
-  const floating = (Object.keys(widgets) as WidgetId[]).filter((id) => widgets[id].open && !widgets[id].docked);
+  const floating = (Object.keys(widgets) as WidgetId[]).filter((id) => id !== "chat" && widgets[id].open && !widgets[id].docked); // chat lives only in the right Agentic panel
   return (
     <div className="fixed inset-0 pointer-events-none z-[45]">
       {floating.map((id) => (

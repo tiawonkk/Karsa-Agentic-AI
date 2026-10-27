@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Send, Trash2 } from "lucide-react";
+import { FolderOpen, Paperclip, Send, Trash2 } from "lucide-react";
+import { uploadFile } from "../studio/FileDropzone";
+import { projectFolder, useProjectFolder } from "../../stores/projectFolder";
 import { WidgetSize } from "../../context/WidgetsContext";
 import { MarkdownView } from "../MarkdownView";
 import { useSystemStatus } from "../../context/SystemStatusContext";
@@ -25,6 +27,20 @@ export const ChatBody: React.FC<{ size: WidgetSize; chat: ChatBridge; onOpenSett
   const [input, setInput] = useState("");
   const endRef = useRef<HTMLDivElement | null>(null);
   const { isApiConnected, activeBadge } = useSystemStatus();
+  const folder = useProjectFolder();
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [attachNote, setAttachNote] = useState<string | null>(null);
+
+  const attach = async (file: File) => {
+    setAttachNote(`Mengunggah ${file.name}…`);
+    try {
+      const r = await uploadFile("chat", file);
+      setInput((v) => `${v}${v && !v.endsWith(" ") ? " " : ""}[Lampiran: ${r.name} di ${r.path}] `);
+      setAttachNote(null);
+    } catch (e: any) {
+      setAttachNote(e?.message ?? "Unggahan gagal.");
+    }
+  };
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -40,6 +56,27 @@ export const ChatBody: React.FC<{ size: WidgetSize; chat: ChatBridge; onOpenSett
 
   const field = (
     <form onSubmit={send} className="flex items-center gap-1.5 w-full">
+      <input
+        ref={fileInput}
+        type="file"
+        className="hidden"
+        accept=".pdf,.docx,.pptx,.txt,.md,.csv,.xlsx,.xls,.json,.png,.jpg,.jpeg,.webp"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) attach(f);
+          e.target.value = "";
+        }}
+      />
+      {size !== "S" && (
+        <>
+          <button type="button" onClick={() => fileInput.current?.click()} className="w-7 h-7 rounded-full bg-pill text-ink-2 hover:text-ink flex items-center justify-center cursor-pointer flex-shrink-0" title="Lampirkan file" aria-label="Upload file">
+            <Paperclip className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" onClick={() => projectFolder.pick()} className={`w-7 h-7 rounded-full flex items-center justify-center cursor-pointer flex-shrink-0 ${folder.path ? "karsa-grad" : "bg-pill text-ink-2 hover:text-ink"}`} title={folder.path ? `Folder project: ${folder.path}` : "Pilih folder project"} aria-label="Set folder">
+            <FolderOpen className="w-3.5 h-3.5" />
+          </button>
+        </>
+      )}
       <input
         value={input}
         onChange={(e) => setInput(e.target.value)}
@@ -108,6 +145,11 @@ export const ChatBody: React.FC<{ size: WidgetSize; chat: ChatBridge; onOpenSett
         )}
         <div ref={endRef} />
       </div>
+      {(folder.path || attachNote) && (
+        <div className="text-[10px] text-ink-muted truncate" title={folder.path ?? undefined}>
+          {attachNote ?? `📁 ${folder.path}`}
+        </div>
+      )}
       {field}
     </div>
   );

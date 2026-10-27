@@ -7,6 +7,7 @@ import { ProjectPanel, SearchPanel } from "./ResearchPanel";
 import { BusinessPanel } from "./BusinessPanel";
 import { BuildPanel } from "./BuildPanel";
 import { NotebookBody } from "../widgets/NotebookWidget";
+import { FolderBar } from "./FolderBar";
 
 export interface Automation {
   id: AutomationId;
@@ -49,21 +50,32 @@ export const AutomationPanel: React.FC<{ id: AutomationId; onGo?: (id: Automatio
     case "brain":
       // The notebook holds both: cited Q&A / quiz for learning, and the IMRaD paper draft with .docx export
       return (
-        <div className="h-[560px] max-h-full">
-          <NotebookBody size="L" />
+        <div className="space-y-2">
+          {id === "article" && <FolderBar compact hint="Pilih folder agar paper_imrad.docx langsung tersimpan di sana." />}
+          <div className="h-[560px] max-h-full">
+            <NotebookBody size="L" />
+          </div>
         </div>
       );
     case "project":
-      return <ProjectPanel />;
+      return (
+        <div className="space-y-3">
+          <FolderBar compact />
+          <ProjectPanel />
+        </div>
+      );
     case "business":
       return (
-        <BusinessPanel
+        <div className="space-y-3">
+          <FolderBar compact />
+          <BusinessPanel
           onBuildCreated={() => {
             buildBump++;
             force((n) => n + 1);
             onGo?.("prd");
           }}
         />
+        </div>
       );
   }
 };

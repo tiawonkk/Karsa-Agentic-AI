@@ -26,6 +26,7 @@ import { useJellyMoodSync } from "../hooks/useJellyMoodSync";
 import { FloatingPopupCard } from "./FloatingPopupCard";
 import { ReceiptPreviewCard, isImageFile } from "./ReceiptPreviewCard";
 import { PeekView } from "./PeekView";
+import { currentProjectFolder } from "../stores/projectFolder";
 import { useDashboard } from "../hooks/useDashboard";
 import { SystemStatusProvider } from "../context/SystemStatusContext";
 
@@ -330,6 +331,16 @@ export const NotchIsland: React.FC = () => {
     };
   }, [shellMode, isSleeping]);
 
+  // Receipt photo chosen in the Finance workspace: same OCR preview as dropping it on the island
+  useEffect(() => {
+    const onReceipt = (e: Event) => {
+      const f = (e as CustomEvent<File>).detail;
+      if (f) setReceiptFile(f);
+    };
+    window.addEventListener("karsa:receipt-file", onReceipt);
+    return () => window.removeEventListener("karsa:receipt-file", onReceipt);
+  }, []);
+
   // Tray menu "Mode Tidur" (desktop shell)
   const isSleepingRef = useRef(isSleeping);
   isSleepingRef.current = isSleeping;
@@ -361,23 +372,9 @@ export const NotchIsland: React.FC = () => {
       }
     };
 
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node) &&
-        !activePopover
-      ) {
-        if (shellMode === "EXPANDED") {
-          setShellMode("IDLE_EYES");
-        }
-      }
-    };
-
     window.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("mousedown", handleClickOutside);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [shellMode, activePopover]);
 
@@ -451,6 +448,7 @@ export const NotchIsland: React.FC = () => {
         body: JSON.stringify({
           message: text,
           thread_id: threadId,
+          workspace_path: currentProjectFolder(), // the agent works in the folder the user chose
         }),
       });
 
@@ -674,7 +672,7 @@ export const NotchIsland: React.FC = () => {
         )}
 
         {/* Mode 4: Expanded island = the 5 daily utility slides only (chat and the AI automations live in the right dock) */}
-        {shellMode === "EXPANDED" && <IslandDeck chat={chat} onWide={setIslandWide} />}
+        {shellMode === "EXPANDED" && <IslandDeck chat={chat} onWide={setIslandWide} onCollapse={() => setShellMode(prevModeRef.current === "IDLE_EYES" ? "IDLE_EYES" : "COMPACT_PILL")} />}
       </NotchShell>
 
       {/* Right-side mini screen + floating widgets (unmounted while asleep: Zero-Heat) */}
