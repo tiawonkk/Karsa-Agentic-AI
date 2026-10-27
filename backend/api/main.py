@@ -104,6 +104,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from backend.api.automation import router as automation_router  # noqa: E402
+
+app.include_router(automation_router)
+
 # Cross-Origin Resource Sharing
 app.add_middleware(
     CORSMiddleware,
